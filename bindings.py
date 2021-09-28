@@ -15,7 +15,7 @@ _HOSTS = [("192.168.0.140","10500")]
 #
 
 
-_DEVICES VALUES={
+_DEVICES_VALUES={
     257:"Eikos2",
     258:"Saphyr",
     259:"Pulse2",
@@ -42,15 +42,15 @@ _LAYERS={
 _SRC={
     "No input":0,
     "Input 1":1,"Frame 1":1,
-    "Input 2" :2, "frame 2":2,
-    "Input 3 ":3, "frame 3":3,
-    "Input 4" :4, "frame 4":4,
-    "Input 5" :5, "frame 5":5,
-    "Input 6" :6, "frame 6":6,
-    "Input 7" :7, "frame 7":7,
-    "Input 8" :8, "frame 8":8,
-    "Input 9" :9, "frame 9":9,
-    "Input 10" :10, "frame 10":10,
+    "Input 2" :2, "Frame 2":2,
+    "Input 3 ":3, "Frame 3":3,
+    "Input 4" :4, "Frame 4":4,
+    "Input 5" :5, "Frame 5":5,
+    "Input 6" :6, "Frame 6":6,
+    "Input 7" :7, "Frame 7":7,
+    "Input 8" :8, "Frame 8":8,
+    "Input 9" :9, "Frame 9":9,
+    "Input 10" :10, "Frame 10":10,
     "Color":11, "Black":11
 }
 
@@ -79,20 +79,50 @@ class analogController(object):
         pass
 
     def connect(self):
+        """The device acts as a server. Once the TCP connection is established, the controller shall
+            check that the device is ready, by reading the READY status, until it returns the value 1.
+            [*] (* <value>) The controller shall wait and retry until it receives the value 1
+        """
         pass
 
-    def getStatus(self):
+    def getDevice(self):
+        """This read only command gives the device type
+        [?] (DEV <value>) <values>:_DEVICES_VALUES
+        """
+        pass
+    def getVersion(self):
+        """his read only command gives the version number of the command set.
+        It is recommended to check that this value matches the one expected by the controller.
+        [VEvar] (VEvar<version>)
+        """
         pass
 
-    def _keepAlive(self):
+    def getStatus(self,value=3):
+        """Reading a change of values
+        [<value>#] (# <rvalue>) The controller must wait for <rvalue> to equals 0 for the end of enumeration
+        <value>:1 All register values 3: Only non default values
+        """
+        pass
+
+    def _keepAlive(self,val=1):
+        """Send a keepalive to check (and ensure) the connection is still up
+        [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
+        """
         pass
 
     def changeLayer(self,screen,ProgPrev,layer,src):
+        """Change the layer of selected
+        [<scrn>,<ProgPrev>,<layer>,<src>PRinp] Change the input on a selected layer
+        <scrn> is the RCS² screen number minus 1.
+        <ProgPrev> is 0 for Program, 1 for Preview.
+        <layer> is a value representing the destination Layer.
+        <src> is a value representing the input source.
+        """
         pass
 
     def takeAvailable(self,*screens):
         """Test for take availability
-        (GCtav<scrn>,0) Test take availability on screen <scrn>
+        [<scrn>,GCtav] Test take availability on screen <scrn>
         (GCtav<scrn>,0) : Take is unavailable
         (GCtav<scrn>,1) : Take is available"""
         for screen in screens:
@@ -101,7 +131,7 @@ class analogController(object):
     def take(self,screen):
         """ Take a specific screen
         [Wait for the TAKE availability on all screen] takeAvailable (screen1,screen2,etc...)
-        [Launch the TAKE action] <scrn>,1GCtak
+        [<scrn>,1GCtak] Launch the TAKE action
         (GCtak<scrn>,1) : Take in progress
         (GCtav<scrn>,0) : Take is unavailable
         (GCtak<scrn>,0) : Take finished <--- Waiting for
@@ -111,9 +141,9 @@ class analogController(object):
     def takeAll(self):
         """Take all screens
         [Wait for the TAKE availability on all screen] takeAvailable (screen1,screen2,etc...)
-        [Launch the TAKE ALL action] 1,GCtal
-        Only value 1 is allowed, machine will immediately acknowledge the command, then will do the
-        transition on both screens and last will answer with the 0 value after the end of the TAKE ALL command.
+        [1,GCtal] Launch the TAKE ALL action
+            Only value 1 is allowed, machine will immediately acknowledge the command, then will do the
+            transition on both screens and last will answer with the 0 value after the end of the TAKE ALL command.
         (GCtal1) Take all in progress
         (GCtav<scrn>,0) : Take is unavailable
         (GCtav<scrn>,0) : Take is unavailable
@@ -152,7 +182,7 @@ class analogController(object):
         """
 
 ################################
-# Quickframes
+# QuickFrames
 
 
 # Changelayer
