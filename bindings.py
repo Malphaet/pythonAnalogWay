@@ -2,15 +2,25 @@
 
 ################################
 # IMPORTS
-import socketserver
-
-
+# import socketserver
+import socket
+import sys
+import threading
 
 ################################
 # CONFIG VARIABLES
-_HOSTS = [("192.168.0.140","10500")]
+_IPSELF = "192.168.0.140" # Could be usefull for multi IP networks
 
+_HOSTS = [("192.168.0.140",10500)]
+_VERBOSE=True
 
+_MSGSIZE=4096
+
+if _VERBOSE:
+    def dprint(*args):
+        print(*args)
+else:
+    dprint=lambda x:None
 ################################
 #
 
@@ -76,20 +86,42 @@ class analogController(object):
     "AnalogWay Controller, controls one AnalogWay device"
 
     def __init__(self,ip,port):
-        pass
+        self.sck=None
+        self.ip=ip
+        self.port=port
+
+        try:
+            dprint('[pAW:INFO] Creating socket')
+            self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            dprint('[pAW:INFO] Getting remote IP address')
+            host=_IPSELF
+            remote_ip = socket.gethostbyname( host )
+
+        except socket.error:
+            print('[pAW:ERROR] Failed to create socket')
+            sys.exit()
+        except socket.gaierror:
+            print('[pAW:ERROR] Hostname could not be resolved. Exiting')
+            sys.exit()
 
     def connect(self):
         """The device acts as a server. Once the TCP connection is established, the controller shall
             check that the device is ready, by reading the READY status, until it returns the value 1.
             [*] (* <value>) The controller shall wait and retry until it receives the value 1
         """
-        pass
+        dprint('[pAW:INFO] Connecting to server, {self.ip}:{self.port}'.format(self=self))
+        self.sck.connect((self.ip,self.port))
+        dprint('[pAW:INFO] Sending data to server')
+        self.sendData("*\r\n")
+        self.waitfor(b'*1\r\n')
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
-        pass
+        self.sendData("?")
+        self.waitfor(b'DEV259\r')
+
     def getVersion(self):
         """his read only command gives the version number of the command set.
         It is recommended to check that this value matches the one expected by the controller.
@@ -117,7 +149,7 @@ class analogController(object):
         <ProgPrev> is 0 for Program, 1 for Preview.
         <layer> is a value representing the destination Layer.
         <src> is a value representing the input source.
-        """
+        """ #Rinp0,1,7,5\r\nPRinp0,1,1
         pass
 
     def takeAvailable(self,*screens):
@@ -181,8 +213,97 @@ class analogController(object):
             Hide:    0CTqfl (CTqfl 0 R F)
         """
 
-################################
-# QuickFrames
+    def connectionSequence(self):
+        "Execute the full connection sequence"
+        self.connect()
+        self.getDevice()
+        self.getVersion()
+        self.getStatus()
 
+    def waitfor(self,value):
+        """Wait for a specific return value, blocking"""
+        notfound=True
+        while notfound:
+            reply=self.sck.recv(_MSGSIZE)
+            dprint ("[pAW:INFO] Received:",reply)
 
-# Changelayer
+            if reply==value:
+                dprint("Found")
+                return
+
+    def sendData(self,data):
+        "Send data through the socket"
+        try:
+            self.sck.sendall(data.encode())
+        except socket.error:
+            print ('[pAW:ERROR] Send failed of data :',data)
+            sys.exit()
+
+#####################
+# TESTING
+if __name__ == '__main__':
+    ctrl1=analogController(*_HOSTS[0])
+    ctrl1.connectionSequence()
+
+    ctrl1.waitfor("")
+    # # Receive data
+    # print('# Receive data from server')
+    # while True:
+    #     reply = s.recv(4096)
+    #
+    #     print (reply)
+    # # thread function
+    # def threaded(c):
+    #     while True:
+    #
+    #         # data received from client
+    #         data = c.recv(1024)
+    #         if not data:
+    #             print('Bye')
+    #
+    #             # lock released on exit
+    #             print_lock.release()
+    #             break
+    #
+    #         # reverse the given string from client
+    #         data = data[::-1]
+    #
+    #         # send back reversed string to client
+    #         c.send(data)
+    #
+    #     # connection closed
+    #     c.close()
+    #
+    #
+    # def Main():
+    #     host = ""
+    #
+    #     # reverse a port on your computer
+    #     # in our case it is 12345 but it
+    #     # can be anything
+    #     port = 12345
+    #     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #     s.bind((host, port))
+    #     print("socket binded to port", port)
+    #
+    #     # put the socket into listening mode
+    #     s.listen(5)
+    #     print("socket is listening")
+    #
+    #     # a forever loop until client wants to exit
+    #     while True:
+    #
+    #         # establish connection with client
+    #         c, addr = s.accept()
+    #
+    #         # lock acquired by client
+    #         print_lock.acquire()
+    #         print('Connected to :', addr[0], ':', addr[1])
+    #
+    #         # Start a new thread and return its identifier
+    #         start_new_thread(threaded, (c,))
+    #     s.close()
+    #
+    #
+    # if __name__ == '__main__':
+    #     Main()
