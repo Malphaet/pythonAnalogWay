@@ -3,9 +3,9 @@
 ################################
 # IMPORTS
 # import socketserver
-import socket
+import socket, threading
 import sys
-import threading
+import re
 
 ################################
 # CONFIG VARIABLES
@@ -78,6 +78,9 @@ _FILTER={
     "No filter":0
 }
 
+################################
+# Regex for messages
+
 
 ################################
 # CLASS DEFINITIONS
@@ -127,7 +130,8 @@ class analogController(object):
         It is recommended to check that this value matches the one expected by the controller.
         [VEvar] (VEvar<version>)
         """
-        pass
+        self.sendData("VEvar")
+        self.waitfor(b'DEV259\r')
 
     def getStatus(self,value=3):
         """Reading a change of values
