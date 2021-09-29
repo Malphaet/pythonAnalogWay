@@ -22,7 +22,7 @@ if _VERBOSE:
 else:
     dprint=lambda x:None
 ################################
-#
+# VARIABLES
 
 
 _DEVICES_VALUES={
@@ -81,6 +81,11 @@ _FILTER={
 ################################
 # Regex for messages
 
+_WAIT_CONNECT=re.compile('\*1')
+_WAIT_DEVICE =re.compile('DEV(?P<device>\d*)')
+_WAIT_VERSION=re.compile('VEvar(?P<version>\d*)')
+_WAIT_STATUS=re.compile('#(?P<status>\d*)')
+_WAIT_KPALIVE=re.compile('SYpig(?P<ping>\d*)')
 
 ################################
 # CLASS DEFINITIONS
@@ -116,14 +121,16 @@ class analogController(object):
         self.sck.connect((self.ip,self.port))
         dprint('[pAW:INFO] Sending data to server')
         self.sendData("*\r\n")
-        self.waitfor(b'*1\r\n')
+        ret=self.waitfor(_WAIT_CONNECT)
+        print(ret)
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
         self.sendData("?")
-        self.waitfor(b'DEV259\r')
+        ret=self.waitfor(_WAIT_DEVICE,"device")
+        print(ret)
 
     def getVersion(self):
         """his read only command gives the version number of the command set.
@@ -131,20 +138,25 @@ class analogController(object):
         [VEvar] (VEvar<version>)
         """
         self.sendData("VEvar")
-        self.waitfor(b'DEV259\r')
+        ret=self.waitfor(_WAIT_VERSION,"version")
+        print(ret)
 
     def getStatus(self,value=3):
         """Reading a change of values
         [<value>#] (# <rvalue>) The controller must wait for <rvalue> to equals 0 for the end of enumeration
         <value>:1 All register values 3: Only non default values
         """
-        pass
-
+        self.sendData('#{}'.format(value))
+        ret=self.waitfor(_WAIT_STATUS)
+        print(ret)
+        
     def _keepAlive(self,val=1):
         """Send a keepalive to check (and ensure) the connection is still up
         [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
         """
-        pass
+        self.sendData("{}SYpig".format(val))
+        ret=self.waitfor(_WAIT_KPALIVE)
+        print(ret)
 
     def changeLayer(self,screen,ProgPrev,layer,src):
         """Change the layer of selected
@@ -224,16 +236,26 @@ class analogController(object):
         self.getVersion()
         self.getStatus()
 
-    def waitfor(self,value):
+    def waitfor(self,value,*matchgroups):
         """Wait for a specific return value, blocking"""
         notfound=True
+        returndict={}
         while notfound:
-            reply=self.sck.recv(_MSGSIZE)
-            dprint ("[pAW:INFO] Received:",reply)
+            try:
+                reply=self.sck.recv(_MSGSIZE)
+                dprint ("[pAW:INFO] Received:",reply)
+                RX_MTCH=value.match(reply.decode())
+                for grp in matchgroups:
+                    returndict[grp]=RX_MTCH.group(grp)
+            except AttributeError as e:
+                dprint("[pAW:ERROR] Regex couldn't find a match")
+                dprint(e)
+            except Exception as e:
+                print(e)
 
-            if reply==value:
-                dprint("Found")
-                return
+            return returndict
+            # except:
+            #     pass
 
     def sendData(self,data):
         "Send data through the socket"
@@ -246,10 +268,12 @@ class analogController(object):
 #####################
 # TESTING
 if __name__ == '__main__':
+
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.connectionSequence()
 
     ctrl1.waitfor("")
+    # except ConnectionRefusedError:
     # # Receive data
     # print('# Receive data from server')
     # while True:
