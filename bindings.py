@@ -22,7 +22,9 @@ _MSG_ENDING=b"\r\n"
 # BIG DEFINES
 
 _NO_FUNCT=lambda x:None
-_SYS_EXIT=lambda x:sys.exit()
+def _SYS_EXIT(system,*args):
+    system.fatal=True
+    sys.exit()
 
 if _VERBOSE:
     def dprint(*args):
@@ -147,7 +149,7 @@ class analogController(object):
         self.port=port
         self.running=True
         self.listening=False
-
+        self.fatal=False
         # Last received match messages
         self.messages={i:None for i in ["CONNECT","DEVICE","VERSION","STATUS","KPALIVE","REGEX"]}
 
@@ -181,25 +183,26 @@ class analogController(object):
     #     self.feedback.messageReceived("CONNECT",match)
     def receive_GENERIC(self,match):
         "We received a connect message, all the logic will be on the feedback side"
-        #     self.messages["CONNECT"]=match
-        #     self._LOCKS["connect"].release()
-        #     self.feedback.messageReceived("CONNECT",match)
-        typ=_MATCHS[match.group("msg")]
-        self.messages[typ]=match #why not, not very clever tho
-        self._LOCKS[typ].release()
-        self.feedback.messageReceived("typ",match)
+        try:
+            typ=_MATCHS[match.group("msg")]
+            self.messages[typ]=match #why not, not very clever tho
+            self._LOCKS[typ].release()
+            self.feedback.messageReceived("typ",match)
+        except RuntimeError as e:
+            iprint("Lock [{}] is already released (async terminated earlier)".format(typ))
+            iprint(e)
+
 
     ##############################################
     # LOCKS
-    def waitLock(self,lockname,function_success=_NO_FUNCT,args_succes=(),function_error=_NO_FUNCT,args_error=()):
+    def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=()):
         """Wait for the lock <lockname> to be released, non blocking"""
-        thd=threading.Thread(target=self._initLockWait,args=(lockname,function_success,args_succes,function_error,args_error))
+        thd=threading.Thread(target=self._initLockWait,args=(lockname,function_success,args_success,function_error,args_error))
         thd.start()
         return thd
 
-    def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_succes=(),function_error=_NO_FUNCT,args_error=()):
+    def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=()):
         """Thread waiting for a lock"""
-        print(function_success,args_succes,function_error,args_error)
         iprint("Checking for [{}] lock avaivability".format(lockname))
         if not self._LOCKS[lockname].locked(): #The state it's supposed to be in, but let's not be too sure
             self._LOCKS[lockname].acquire(timeout=0.01)
@@ -225,25 +228,37 @@ class analogController(object):
         iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
         self.sck.connect((self.ip,self.port))
 
-        wait=self.waitLock("CONNECT",function_error=_SYS_EXIT)
+        wait=self.waitLock("CONNECT",function_error=_SYS_EXIT,args_error=(self))
         self.sendData("*\r\n")
-        iprint("Waiting for",wait)
+        # iprint("Waiting for",wait)
         wait.join()
-        iprint("Finished wait for",wait)
+        if self.fatal:
+            _SYS_EXIT(self)
+        # iprint("Finished wait for",wait)
 
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
+        iprint("Acquiring device type")
+        wait=self.waitLock("DEVICE",function_error=_SYS_EXIT,args_error=(self))
         self.sendData("?")
+        wait.join()
+        if self.fatal:
+            _SYS_EXIT(self)
 
     def getVersion(self):
         """his read only command gives the version number of the command set.
         It is recommended to check that this value matches the one expected by the controller.
         [VEvar] (VEvar<version>)
         """
+        iprint("Acquiring version")
+        wait=self.waitLock("VERSION",function_error=_SYS_EXIT,args_error=(self))
         self.sendData("VEvar")
+        wait.join()
+        if self.fatal:
+            _SYS_EXIT(self)
 
     def getStatus(self,value=3):
         """Reading a change of values
@@ -332,7 +347,7 @@ class analogController(object):
         "Execute the full connection sequence"
         self.start_listening()
         self.connect()
-        # self.getDevice()
+        self.getDevice()
         # self.getVersion()
         # self.getStatus()
 
@@ -351,9 +366,14 @@ class analogController(object):
         "Yield only clean messages"
         self.running=True
         reply_bytes=b""
+
         while self.running:
             try:
-                reply_bytes+=self.sck.recv(_MSGSIZE)
+                # f = open("datadump.txt", "ab+")
+                received=self.sck.recv(_MSGSIZE)
+                # f.write(received)
+                # f.close()
+                reply_bytes+=received
                 if reply_bytes.find(_MSG_ENDING)==-1: # Message is not finished
                     continue
                 else:
@@ -381,7 +401,8 @@ class analogController(object):
         """Process a match with a message, should only be called by the socketLoop funciton"""
         try:
             name=_MATCHS[match.group("msg")]
-            # self.__getattr__("connect_{}".format(name),"GENERIC")(match)
+            # self.__getattribute__("receive_{}".format(name),default="GENERIC")(match)
+            self.receive_GENERIC(match)
 
         except KeyError as e:
             dprint("[pAW:ERROR] Can't find matched key:",match)
