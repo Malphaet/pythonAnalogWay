@@ -16,6 +16,8 @@ _VERBOSE=True
 
 _MSGSIZE=4096
 _TIMEOUT=0.5
+_TIMEOUT_BIG=5
+_TIMEOUT_HUGE=20
 _MSG_ENDING=b"\r\n"
 
 ################################
@@ -47,6 +49,9 @@ else:
 class pyNope(object):
     def __init__(self):
         pass
+
+    def messageReceived(self,*args):
+        iprint("An order has been received :",args)
 
     def __call__(self,*args,**kwargs):
         return self
@@ -117,11 +122,11 @@ _FILTER={
 ################################
 # Regex for messages
 
-_WAIT_CONNECT=re.compile('\*1')
-_WAIT_DEVICE =re.compile('DEV(?P<device>\d*)')
-_WAIT_VERSION=re.compile('VEvar(?P<version>\d*)')
-_WAIT_STATUS=re.compile('#(?P<status>\d*)')
-_WAIT_KPALIVE=re.compile('SYpig(?P<ping>\d*)')
+# _WAIT_CONNECT=re.compile('\*1')
+# _WAIT_DEVICE =re.compile('DEV(?P<device>\d*)')
+# _WAIT_VERSION=re.compile('VEvar(?P<version>\d*)')
+# _WAIT_STATUS=re.compile('#(?P<status>\d*)')
+# _WAIT_KPALIVE=re.compile('SYpig(?P<ping>\d*)')
 # PROGRESS "PSprg99"
 # GCfrl ?
 # GCply
@@ -133,7 +138,7 @@ _MATCHS={
     "VEvar":"VERSION",
     "#":"STATUS",
     "SYpig":"KPALIVE",
-    "n":""
+    "PRinp":"LAYERINP",
 }
 
 
@@ -150,16 +155,21 @@ class analogController(object):
         self.running=True
         self.listening=False
         self.fatal=False
-        # Last received match messages
-        self.messages={i:None for i in ["CONNECT","DEVICE","VERSION","STATUS","KPALIVE","REGEX"]}
+        # Last received match messages, avoid until forced to
+        # self.messages={i:None for i in ["CONNECT","DEVICE","VERSION","STATUS","KPALIVE","REGEX"]}
 
         #
         self.feedback=feedbackInterface # Feedback interface gui or midiRebind
         self._LOCKS={i:threading.Lock() for i in [
-            "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","changeLayer",
+            "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
             "takeAvailable","take","takeAll","loadMM","quickFrame","quickFrameAll"
-        ]}
+        ]} #LAYERINP could actually be a huge clusterlock, not for now tho
+        for i in range(2):
+            for j in range(2):
+                for k in range(8):
+                    self._LOCKS["LAYERINP{}_{}_{}".format(i,j,k)]=threading.Lock()
 
+        self._LOCKS{}
         try:
             iprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -181,34 +191,35 @@ class analogController(object):
     #     self.messages["CONNECT"]=match
     #     self._LOCKS["connect"].release()
     #     self.feedback.messageReceived("CONNECT",match)
-    def receive_GENERIC(self,match):
+    def genericRECEIVE(self,match):
         "We received a connect message, all the logic will be on the feedback side"
         try:
             typ=_MATCHS[match.group("msg")]
-            self.messages[typ]=match #why not, not very clever tho
-            self._LOCKS[typ].release()
-            self.feedback.messageReceived("typ",match)
+            # self.messages[typ]=match # Not very clever tho
+            self._LOCKS[typ].release() #TODO : Add a custom .release method to finetune everything
+            self.feedback.messageReceived(typ,match) #Do an actual action
         except RuntimeError as e:
             iprint("Lock [{}] is already released (async terminated earlier)".format(typ))
             iprint(e)
-
+        except KeyError as e:
+            eprint("There is no lock associated with {}".format(typ))
 
     ##############################################
     # LOCKS
-    def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=()):
+    def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
         """Wait for the lock <lockname> to be released, non blocking"""
-        thd=threading.Thread(target=self._initLockWait,args=(lockname,function_success,args_success,function_error,args_error))
+        thd=threading.Thread(target=self._initLockWait,args=(lockname,function_success,args_success,function_error,args_error,timeout))
         thd.start()
         return thd
 
-    def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=()):
+    def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
         """Thread waiting for a lock"""
         iprint("Checking for [{}] lock avaivability".format(lockname))
         if not self._LOCKS[lockname].locked(): #The state it's supposed to be in, but let's not be too sure
             self._LOCKS[lockname].acquire(timeout=0.01)
         # Now wait for the lock to be released
         iprint("Acquired [{}] : Locking".format(lockname))
-        status=self._LOCKS[lockname].acquire(timeout=_TIMEOUT)
+        status=self._LOCKS[lockname].acquire(timeout=timeout)
         if status:
             iprint("Lock [{}] passed succesfully".format(lockname))
             function_success(args_success)
@@ -229,59 +240,57 @@ class analogController(object):
         self.sck.connect((self.ip,self.port))
 
         wait=self.waitLock("CONNECT",function_error=_SYS_EXIT,args_error=(self))
-        self.sendData("*\r\n")
+        self.sendData("*")
         # iprint("Waiting for",wait)
         wait.join()
         if self.fatal:
             _SYS_EXIT(self)
         # iprint("Finished wait for",wait)
 
+    def genericSEND(self,lock,send,fatal=True,*args,**kwargs):
+        "Generic send and join method, with all the logic on the controler side"
+        iprint("Acquiring {}".format(lock.lower()))
+        wait=self.waitLock(lock,function_error=_SYS_EXIT,args_error=(self),*args,**kwargs)
+        self.sendData(send)
+        wait.join()
+        if fatal and self.fatal:
+            _SYS_EXIT(self)
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
-        iprint("Acquiring device type")
-        wait=self.waitLock("DEVICE",function_error=_SYS_EXIT,args_error=(self))
-        self.sendData("?")
-        wait.join()
-        if self.fatal:
-            _SYS_EXIT(self)
+        self.genericSEND("DEVICE","?")
 
     def getVersion(self):
         """his read only command gives the version number of the command set.
         It is recommended to check that this value matches the one expected by the controller.
         [VEvar] (VEvar<version>)
         """
-        iprint("Acquiring version")
-        wait=self.waitLock("VERSION",function_error=_SYS_EXIT,args_error=(self))
-        self.sendData("VEvar")
-        wait.join()
-        if self.fatal:
-            _SYS_EXIT(self)
+        self.genericSEND("VERSION","VEvar")
 
     def getStatus(self,value=3):
         """Reading a change of values
         [<value>#] (# <rvalue>) The controller must wait for <rvalue> to equals 0 for the end of enumeration
         <value>:1 All register values 3: Only non default values
         """
-        self.sendData('#{}'.format(value))
+        self.genericSEND("STATUS",'#{}'.format(value),timeout=_TIMEOUT_BIG)
 
     def _keepAlive(self,val=1):
         """Send a keepalive to check (and ensure) the connection is still up
         [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
         """
-        self.sendData("{}SYpig".format(val))
+        self.genericSEND("KPALIVE","{}SYpig".format(val),timeout=_TIMEOUT_BIG)
 
     def changeLayer(self,screen,ProgPrev,layer,src):
         """Change the layer of selected
-        [<scrn>,<ProgPrev>,<layer>,<src>PRinp] Change the input on a selected layer
-        <scrn> is the RCS² screen number minus 1.
-        <ProgPrev> is 0 for Program, 1 for Preview.
-        <layer> is a value representing the destination Layer.
-        <src> is a value representing the input source.
+        [<screen>,<ProgPrev>,<layer>,<src>PRinp] Change the input on a selected layer
+        <screen> is the RCS² screen number minus 1. (2)
+        <ProgPrev> is 0 for Program, 1 for Preview. (2) # Not gonna livechange, so it's ignored
+        <layer> is a value representing the destination Layer. (7)
+        <src> is a value representing the input source. (10)
         """ #Rinp0,1,7,5\r\nPRinp0,1,1
-        pass
+        self.genericSEND("LAYERINP","{screen},{ProgPrev},{layer},{src}PRinp".format(screen=screen,ProgPrev=ProgPrev,layer=layer,src=src),timeout=_TIMEOUT)
 
     def takeAvailable(self,*screens):
         """Test for take availability
@@ -300,6 +309,7 @@ class analogController(object):
         (GCtak<scrn>,0) : Take finished <--- Waiting for
         (GCtav<scrn>,1) : Take is available
         """
+        self.genericSEND("TAKE","{screen},1PRinp".format(screen=screen),timeout=_TIMEOUT_BIG)
 
     def takeAll(self):
         """Take all screens
@@ -348,11 +358,8 @@ class analogController(object):
         self.start_listening()
         self.connect()
         self.getDevice()
-        # self.getVersion()
-        # self.getStatus()
-
-
-
+        self.getVersion()
+        self.getStatus()
 
     #########################################
     # SOCKET METHODS
@@ -402,8 +409,7 @@ class analogController(object):
         try:
             name=_MATCHS[match.group("msg")]
             # self.__getattribute__("receive_{}".format(name),default="GENERIC")(match)
-            self.receive_GENERIC(match)
-
+            self.genericRECEIVE(match)
         except KeyError as e:
             dprint("[pAW:ERROR] Can't find matched key:",match)
             print(e)
@@ -411,20 +417,35 @@ class analogController(object):
     def sendData(self,data):
         "Send data through the socket"
         try:
-            self.sck.sendall(data.encode())
+            self.sck.sendall((data+'\r\n').encode())
         except socket.error:
             print ('[pAW:ERROR] Send failed of data :',data)
             sys.exit()
 
     def limbowait(self):
         "Testing state, only usefull when not on a remote gui/midiRebind"
-        while True:
-            time.sleep(10)
+        while not self.fatal:
+            time.sleep(_TIMEOUT_HUGE)
 
+    def pingLoop(self):
+        "Another limbo wait, this time with pings"
+        while not self.fatal:
+            self._keepAlive()
+            time.sleep(_TIMEOUT_HUGE)
+
+    def keepPinging(self,timer=_TIMEOUT_HUGE):
+        "Keep pinging"
+        if self.fatal:
+            sys.exit()
+        threading.Timer(timer,self.keepPinging,(timer,)).start()
+        self._keepAlive()
+
+        # threading.Timer(self._keepPinging(timer),timer)
 #####################
 # TESTING
 if __name__ == '__main__':
-    _HOSTS=[["127.0.0.1",10500]] # Test server
+    _HOSTS=[["127.0.0.1",3000]] # Test server
+    _TIMEOUT_HUGE=1
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.connectionSequence()
-    ctrl1.limbowait()
+    ctrl1.keepPinging()
