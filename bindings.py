@@ -62,6 +62,23 @@ class pyNope(object):
     def __getattr__(self,*args,**kwargs):
         return self
 
+class pyYep(object):
+    def __init__(self,*args,**kwargs):
+        pass
+    def __call__(self,*args,**kwargs):
+        return True
+
+    def __repr__(self,*args,**kwargs):
+        return "1"
+
+    def __getattr__(self,arg):
+        return True
+
+    def __equals__(self,*args):
+        return True
+
+    def __true__(self,*args):
+        return True
 ################################
 # VARIABLES
 
@@ -141,6 +158,10 @@ _MATCHS={
     "PRinp":"LAYERINP",
 }
 
+_ALL_MESSAGE_TYPES=[
+    "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
+    "takeAvailable","take","takeAll","loadMM","quickFrame","quickFrameAll"
+]
 
 ################################
 # CLASS DEFINITIONS
@@ -160,23 +181,18 @@ class analogController(object):
 
         #
         self.feedback=feedbackInterface # Feedback interface gui or midiRebind
-        self._LOCKS={i:threading.Lock() for i in [
-            "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
-            "takeAvailable","take","takeAll","loadMM","quickFrame","quickFrameAll"
-        ]} #LAYERINP could actually be a huge clusterlock, not for now tho
-        for i in range(2):
-            for j in range(2):
-                for k in range(8):
-                    self._LOCKS["LAYERINP{}_{}_{}".format(i,j,k)]=threading.Lock()
+        self._LOCKS={i:threading.Lock() for i in _ALL_MESSAGE_TYPES} #LAYERINP could actually be a huge clusterlock, not for now tho
+        # for i in range(2):
+        #     for j in range(2):
+        #         for k in range(8):
+        #             self._LOCKS["LAYERINP{}_{}_{}".format(i,j,k)]=threading.Lock()
+        self.POSTMATCHACTIONS={i:self.getAttr("POSTMATCH_{}".format(i),pyYep()) for i in _ALL_MESSAGE_TYPES}
 
-        self._LOCKS{}
         try:
             iprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             iprint('Getting remote IP address')
-            host=_IPSELF
-            remote_ip = socket.gethostbyname( host )
-
+            remote_ip = socket.gethostbyname(_IPSELF)
         except socket.error:
             print('[pAW:ERROR] Failed to create socket')
             sys.exit()
@@ -184,26 +200,44 @@ class analogController(object):
             print('[pAW:ERROR] Hostname could not be resolved. Exiting')
             sys.exit()
 
+    def getAttr(self,attribute,default):
+        "A custom attribute fetcher"
+        try:
+            return self.__getattribute__(attribute)
+        except:
+            return default
+
+    ################################
+    # RECEIVE ANALISIS
+    # POSTMATCH_CONNECT POSTMATCH_DEVICE POSTMATCH_VERSION POSTMATCH_KPALIVE
+    def POSTMATCH_STATUS(self,match):
+        "Must be 0 to signal end of enum"
+        if match.group("postargs")!="0":
+            return False
+        return True
+
+    # POSTMATCH_LAYERINP
+
     ################################
     # MESSAGE RECEIVE
-    # def receive_CONNECT(self,match):
-    #     "We received a connect message"
-    #     self.messages["CONNECT"]=match
-    #     self._LOCKS["connect"].release()
-    #     self.feedback.messageReceived("CONNECT",match)
     def genericRECEIVE(self,match):
         "We received a connect message, all the logic will be on the feedback side"
         try:
             typ=_MATCHS[match.group("msg")]
             # self.messages[typ]=match # Not very clever tho
             self._LOCKS[typ].release() #TODO : Add a custom .release method to finetune everything
-            self.feedback.messageReceived(typ,match) #Do an actual action
+            status=self.POSTMATCHACTIONS[typ](match)
+            if status:
+                self.feedback.messageReceived(typ,match) #Do an actual action
+            else:
+                wprint("Ignoring message",match)
+
         except RuntimeError as e:
             iprint("Lock [{}] is already released (async terminated earlier)".format(typ))
             iprint(e)
         except KeyError as e:
             eprint("There is no lock associated with {}".format(typ))
-
+            print(e)
     ##############################################
     # LOCKS
     def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
