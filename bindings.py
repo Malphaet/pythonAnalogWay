@@ -149,7 +149,7 @@ class analogController(object):
         self.sendData('#{}'.format(value))
         ret=self.waitfor(_WAIT_STATUS)
         print(ret)
-        
+
     def _keepAlive(self,val=1):
         """Send a keepalive to check (and ensure) the connection is still up
         [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
@@ -268,11 +268,11 @@ class analogController(object):
 #####################
 # TESTING
 if __name__ == '__main__':
-
+    _HOSTS=[["127.0.0.1",10500]] # Test server
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.connectionSequence()
 
-    ctrl1.waitfor("")
+    # ctrl1.waitfor("")
     # except ConnectionRefusedError:
     # # Receive data
     # print('# Receive data from server')
