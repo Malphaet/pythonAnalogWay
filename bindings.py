@@ -4,9 +4,9 @@
 # IMPORTS
 # import socketserver
 import socket, threading
-import sys
+import sys,time
 import re
-
+from _thread import start_new_thread
 ################################
 # CONFIG VARIABLES
 _IPSELF = "192.168.0.140" # Could be usefull for multi IP networks
@@ -15,12 +15,46 @@ _HOSTS = [("192.168.0.140",10500)]
 _VERBOSE=True
 
 _MSGSIZE=4096
+_TIMEOUT=0.5
+_MSG_ENDING=b"\r\n"
+
+################################
+# BIG DEFINES
+
+_NO_FUNCT=lambda x:None
+_SYS_EXIT=lambda x:sys.exit()
 
 if _VERBOSE:
     def dprint(*args):
         print(*args)
+    def spec_print(spec,*args):
+        dprint("[pAW:{}]".format(spec),*args) #(line@{}) ,sys._getframe().f_lineno
+    def iprint(*args):
+        spec_print("INFO",*args)
+    def wprint(*args):
+        spec_print("WARNING",*args)
+    def eprint(*args):
+        spec_print("ERROR",*args)
 else:
-    dprint=lambda x:None
+    dprint=_NO_FUNCT
+    wprint=_NO_FUNCT
+    eprint=_NO_FUNCT
+    iprint=_NO_FUNCT
+
+
+class pyNope(object):
+    def __init__(self):
+        pass
+
+    def __call__(self,*args,**kwargs):
+        return self
+
+    def __repr__(self,*args,**kwargs):
+        return ''
+
+    def __getattr__(self,*args,**kwargs):
+        return self
+
 ################################
 # VARIABLES
 
@@ -86,6 +120,20 @@ _WAIT_DEVICE =re.compile('DEV(?P<device>\d*)')
 _WAIT_VERSION=re.compile('VEvar(?P<version>\d*)')
 _WAIT_STATUS=re.compile('#(?P<status>\d*)')
 _WAIT_KPALIVE=re.compile('SYpig(?P<ping>\d*)')
+# PROGRESS "PSprg99"
+# GCfrl ?
+# GCply
+_MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
+
+_MATCHS={
+    "*":"CONNECT",
+    "DEV":"DEVICE",
+    "VEvar":"VERSION",
+    "#":"STATUS",
+    "SYpig":"KPALIVE",
+    "n":""
+}
+
 
 ################################
 # CLASS DEFINITIONS
@@ -93,15 +141,27 @@ _WAIT_KPALIVE=re.compile('SYpig(?P<ping>\d*)')
 class analogController(object):
     "AnalogWay Controller, controls one AnalogWay device"
 
-    def __init__(self,ip,port):
+    def __init__(self,ip,port,feedbackInterface=pyNope()):
         self.sck=None
         self.ip=ip
         self.port=port
+        self.running=True
+        self.listening=False
+
+        # Last received match messages
+        self.messages={i:None for i in ["CONNECT","DEVICE","VERSION","STATUS","KPALIVE","REGEX"]}
+
+        #
+        self.feedback=feedbackInterface # Feedback interface gui or midiRebind
+        self._LOCKS={i:threading.Lock() for i in [
+            "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","changeLayer",
+            "takeAvailable","take","takeAll","loadMM","quickFrame","quickFrameAll"
+        ]}
 
         try:
-            dprint('[pAW:INFO] Creating socket')
+            iprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            dprint('[pAW:INFO] Getting remote IP address')
+            iprint('Getting remote IP address')
             host=_IPSELF
             remote_ip = socket.gethostbyname( host )
 
@@ -112,25 +172,71 @@ class analogController(object):
             print('[pAW:ERROR] Hostname could not be resolved. Exiting')
             sys.exit()
 
+    ################################
+    # MESSAGE RECEIVE
+    # def receive_CONNECT(self,match):
+    #     "We received a connect message"
+    #     self.messages["CONNECT"]=match
+    #     self._LOCKS["connect"].release()
+    #     self.feedback.messageReceived("CONNECT",match)
+    def receive_GENERIC(self,match):
+        "We received a connect message, all the logic will be on the feedback side"
+        #     self.messages["CONNECT"]=match
+        #     self._LOCKS["connect"].release()
+        #     self.feedback.messageReceived("CONNECT",match)
+        typ=_MATCHS[match.group("msg")]
+        self.messages[typ]=match #why not, not very clever tho
+        self._LOCKS[typ].release()
+        self.feedback.messageReceived("typ",match)
+
+    ##############################################
+    # LOCKS
+    def waitLock(self,lockname,function_success=_NO_FUNCT,args_succes=(),function_error=_NO_FUNCT,args_error=()):
+        """Wait for the lock <lockname> to be released, non blocking"""
+        thd=threading.Thread(target=self._initLockWait,args=(lockname,function_success,args_succes,function_error,args_error))
+        thd.start()
+        return thd
+
+    def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_succes=(),function_error=_NO_FUNCT,args_error=()):
+        """Thread waiting for a lock"""
+        print(function_success,args_succes,function_error,args_error)
+        iprint("Checking for [{}] lock avaivability".format(lockname))
+        if not self._LOCKS[lockname].locked(): #The state it's supposed to be in, but let's not be too sure
+            self._LOCKS[lockname].acquire(timeout=0.01)
+        # Now wait for the lock to be released
+        iprint("Acquired [{}] : Locking".format(lockname))
+        status=self._LOCKS[lockname].acquire(timeout=_TIMEOUT)
+        if status:
+            iprint("Lock [{}] passed succesfully".format(lockname))
+            function_success(args_success)
+        else:
+            iprint("Failed to aquire [{}]".format(lockname))
+            function_error(args_error)
+        return status
+
+    ################################
+    # MESSAGES SUBROUTINS
+
     def connect(self):
         """The device acts as a server. Once the TCP connection is established, the controller shall
             check that the device is ready, by reading the READY status, until it returns the value 1.
             [*] (* <value>) The controller shall wait and retry until it receives the value 1
         """
-        dprint('[pAW:INFO] Connecting to server, {self.ip}:{self.port}'.format(self=self))
+        iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
         self.sck.connect((self.ip,self.port))
-        dprint('[pAW:INFO] Sending data to server')
+
+        wait=self.waitLock("CONNECT",function_error=_SYS_EXIT)
         self.sendData("*\r\n")
-        ret=self.waitfor(_WAIT_CONNECT)
-        print(ret)
+        iprint("Waiting for",wait)
+        wait.join()
+        iprint("Finished wait for",wait)
+
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
         self.sendData("?")
-        ret=self.waitfor(_WAIT_DEVICE,"device")
-        print(ret)
 
     def getVersion(self):
         """his read only command gives the version number of the command set.
@@ -138,8 +244,6 @@ class analogController(object):
         [VEvar] (VEvar<version>)
         """
         self.sendData("VEvar")
-        ret=self.waitfor(_WAIT_VERSION,"version")
-        print(ret)
 
     def getStatus(self,value=3):
         """Reading a change of values
@@ -147,16 +251,12 @@ class analogController(object):
         <value>:1 All register values 3: Only non default values
         """
         self.sendData('#{}'.format(value))
-        ret=self.waitfor(_WAIT_STATUS)
-        print(ret)
-        
+
     def _keepAlive(self,val=1):
         """Send a keepalive to check (and ensure) the connection is still up
         [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
         """
         self.sendData("{}SYpig".format(val))
-        ret=self.waitfor(_WAIT_KPALIVE)
-        print(ret)
 
     def changeLayer(self,screen,ProgPrev,layer,src):
         """Change the layer of selected
@@ -199,7 +299,6 @@ class analogController(object):
         (GCtak<scrn>,1) : Take is available
         (GCtak<scrn>,1) : Take is available
         """
-
         pass
 
     def loadMM(screenF,memory,screenT,ProgPrev,filter):
@@ -231,31 +330,62 @@ class analogController(object):
 
     def connectionSequence(self):
         "Execute the full connection sequence"
+        self.start_listening()
         self.connect()
-        self.getDevice()
-        self.getVersion()
-        self.getStatus()
+        # self.getDevice()
+        # self.getVersion()
+        # self.getStatus()
 
-    def waitfor(self,value,*matchgroups):
-        """Wait for a specific return value, blocking"""
-        notfound=True
-        returndict={}
-        while notfound:
+
+
+
+    #########################################
+    # SOCKET METHODS
+    def start_listening(self):
+        """Start the loop listener"""
+        if self.listening:
+            return
+        start_new_thread(self.socketLoop,())
+
+    def cleanReceive(self):
+        "Yield only clean messages"
+        self.running=True
+        reply_bytes=b""
+        while self.running:
             try:
-                reply=self.sck.recv(_MSGSIZE)
-                dprint ("[pAW:INFO] Received:",reply)
-                RX_MTCH=value.match(reply.decode())
-                for grp in matchgroups:
-                    returndict[grp]=RX_MTCH.group(grp)
+                reply_bytes+=self.sck.recv(_MSGSIZE)
+                if reply_bytes.find(_MSG_ENDING)==-1: # Message is not finished
+                    continue
+                else:
+                    reply,reply_bytes=reply_bytes.rsplit(_MSG_ENDING,1)
+                    reply=(reply+_MSG_ENDING).decode().split("\r\n")
+                    for r in reply[:-1]: # iprint("Yielding:",r)
+                        yield r
+            except AttributeError as e:
+                dprint(e)
+
+    def socketLoop(self):
+        """Loop on the socket and create an event for every message received"""
+        self.listening=True
+        for message in self.cleanReceive():
+            try:
+                iprint ("Received:",message)
+                RX_MTCH=_MESSAGE_REGEX.match(message)
+                iprint("preargs:{} - msg:{} - postargs:{}".format(RX_MTCH.group("preargs"),RX_MTCH.group("msg"),RX_MTCH.group("postargs")))
+                start_new_thread(self.processMatch,(RX_MTCH,))
             except AttributeError as e:
                 dprint("[pAW:ERROR] Regex couldn't find a match")
                 dprint(e)
-            except Exception as e:
-                print(e)
 
-            return returndict
-            # except:
-            #     pass
+    def processMatch(self,match):
+        """Process a match with a message, should only be called by the socketLoop funciton"""
+        try:
+            name=_MATCHS[match.group("msg")]
+            # self.__getattr__("connect_{}".format(name),"GENERIC")(match)
+
+        except KeyError as e:
+            dprint("[pAW:ERROR] Can't find matched key:",match)
+            print(e)
 
     def sendData(self,data):
         "Send data through the socket"
@@ -265,73 +395,15 @@ class analogController(object):
             print ('[pAW:ERROR] Send failed of data :',data)
             sys.exit()
 
+    def limbowait(self):
+        "Testing state, only usefull when not on a remote gui/midiRebind"
+        while True:
+            time.sleep(10)
+
 #####################
 # TESTING
 if __name__ == '__main__':
 
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.connectionSequence()
-
-    ctrl1.waitfor("")
-    # except ConnectionRefusedError:
-    # # Receive data
-    # print('# Receive data from server')
-    # while True:
-    #     reply = s.recv(4096)
-    #
-    #     print (reply)
-    # # thread function
-    # def threaded(c):
-    #     while True:
-    #
-    #         # data received from client
-    #         data = c.recv(1024)
-    #         if not data:
-    #             print('Bye')
-    #
-    #             # lock released on exit
-    #             print_lock.release()
-    #             break
-    #
-    #         # reverse the given string from client
-    #         data = data[::-1]
-    #
-    #         # send back reversed string to client
-    #         c.send(data)
-    #
-    #     # connection closed
-    #     c.close()
-    #
-    #
-    # def Main():
-    #     host = ""
-    #
-    #     # reverse a port on your computer
-    #     # in our case it is 12345 but it
-    #     # can be anything
-    #     port = 12345
-    #     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #     s.bind((host, port))
-    #     print("socket binded to port", port)
-    #
-    #     # put the socket into listening mode
-    #     s.listen(5)
-    #     print("socket is listening")
-    #
-    #     # a forever loop until client wants to exit
-    #     while True:
-    #
-    #         # establish connection with client
-    #         c, addr = s.accept()
-    #
-    #         # lock acquired by client
-    #         print_lock.acquire()
-    #         print('Connected to :', addr[0], ':', addr[1])
-    #
-    #         # Start a new thread and return its identifier
-    #         start_new_thread(threaded, (c,))
-    #     s.close()
-    #
-    #
-    # if __name__ == '__main__':
-    #     Main()
+    ctrl1.limbowait()
