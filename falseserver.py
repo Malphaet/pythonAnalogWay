@@ -1,7 +1,9 @@
-import socket
+import socket,time
 from _thread import start_new_thread
 
-def sequenceAnswers(s,addr,seq):
+_DELAY=0.5
+
+def sequenceAnswers(s,addr,seq,delay=_DELAY):
     try:
         name=addr[1]
         print("[{}] Connected".format(name))
@@ -16,13 +18,14 @@ def sequenceAnswers(s,addr,seq):
                 print("[{}] Received : {}".format(name,recv))
             for r in resps:
                 print("[{}] Sending : {}".format(name,r))
+                time.sleep(delay)
                 s.sendall(r)
         while True:
             print(s.recv(4096).decode())
     except ConnectionResetError as e:
         print("[{}] Has stopped the connection".format(name))
         print(e)
-def Main():
+def Main(delay=_DELAY):
     host = "127.0.0.1"
 
     # reverse a port on your computer
@@ -42,16 +45,17 @@ def Main():
         c, addr = s.accept()
         # print(c.recv(4000))
         # c.sendall(b"*\r\n")
-        start_new_thread(sequenceAnswers, (c,addr,sequence,))
+        start_new_thread(sequenceAnswers, (c,addr,sequence,delay,))
     s.close()
 
 
 if __name__ == '__main__':
     sequence=[
-        ("*",["*1"]),
+        ("*",["VEvar13","#0","VEvar13","*1"]),
         ("?",['DEV259']),
         ("VEvar",["VEvar13"]), #Guess
-        ("#3",["PRinp0,1,7,8","PRinp0,1,1,8","#0"]), #Another guess
+        ("#3",["#4","PRinp0,1,7,8","PRinp0,1,1,8","#0"]), #Another guess
         ("1SYpig",["SYpig4294967294"]) #Another guess
+
         ]
-    Main()
+    Main(0.5)
