@@ -28,7 +28,7 @@ def _SYS_EXIT(system,*args):
     sys.exit()
 
 
-_VERBOSE=2
+_VERBOSE=4
 
 nopeF=lambda *x:None
 def printl(label=""):
@@ -146,7 +146,6 @@ _FILTER={
 
 # PROGRESS "PSprg99"
 # GCfrl ?
-# GCply
 # 0,0GCtio ?
 _MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
 
@@ -166,18 +165,20 @@ _MATCHS={
     "PUscu":"SCRNUPD", #1PUscu
     "GCfsc":"FREEZE",
     "GCfra":"FREEZEALL",
+    "GCfrl":"FREEZELAYER",
+    "GCply":"DISPLAYLAYER",
     "E":"ERROR"
 }
 
 _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
     "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
-    "SCRNUPD","FREEZE","FREEZEALL",
+    "SCRNUPD","FREEZE","FREEZEALL","FREEZELAYER","DISPLAYLAYER",
     "ERROR"
 ]
 
 _UPDATE_MSG=[
-    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL",
+    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER",
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -200,6 +201,9 @@ class analogController(object):
         self.st_quickframe=[False,False]
         self.st_takeavailable=[False,False]
         self.st_quickframeall=False
+        self.st_freeze=[False,False]
+        self.st_freeze_all=False
+        self.st_freeze_layer=[False,False]
         self.feedback=feedbackInterface # Feedback interface gui or midiRebind
         self._LOCKS={i:threading.Lock() for i in _ALL_MESSAGE_TYPES} #LAYERINP could actually be a huge clusterlock, not for now tho
         # for i in range(2):
@@ -311,6 +315,19 @@ class analogController(object):
             return True
         return False
 
+    def POSTMATCH_FREEZEALL(self,match):
+        "Take answer 1"
+        if match.group("postargs")[-1]=="1":
+            return True
+        return False
+
+    def POSTMATCH_DISPLAYLAYER(self,match):
+        "Returns the displayed layer"
+        return True
+
+    def POSTMATCH_FREEZELAYER(self,match):
+        "Returns the layer,screen and status of the freeze"
+        return True
 
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
@@ -475,7 +492,6 @@ class analogController(object):
             self.takeAvailableAll(screen)
             self.takeAll()
 
-
     def loadMM(screenF,memory,screenT,ProgPrev,filter):
         """Load a master memory to a screen
         <screenF>,<memory>,<screenT>,<ProgPrev>,<filter>,1 GClrq ()
@@ -511,8 +527,40 @@ class analogController(object):
         self.genericSEND("QUICKFA","{action:b}CTqfl".format(action=action))
         self.st_quickframeall=action
 
-    def freezeScreen(self,screen):
-        """"""
+    def freezeScreen(self,screen,action=False):
+        """Freeze screen <screen>
+            <screen>,1GCfsc: Freeze screen
+            <screen>,0GCfsc: Un Freeze screen ?
+        """
+        if action==None:
+            action=not self.st_freeze[screen]
+        self.genericSEND("FREEZE","{screen},{action:b}GCfsc".format(screen=screen,action=action))
+        self.st_freeze[screen]=not action
+
+    def freezeScreenAll(self,action=None):
+        """Freeze all screens
+            1GCfra: Freeze screen
+        """
+        if action==None:
+            action=self.st_freeze_all
+        self.genericSEND("FREEZEALL","{action:b}GCfra".format(action=action))
+        self.st_freeze_all=not self.st_freeze_all
+
+    def freezeLayer(self,layer,screen,action=None):
+        """Freeze layer <layer> on <screen>
+        <layer>,<screen>,<action>GCfrl: Freeze screen
+        """
+        if action==None:
+            action=self.st_freeze_layer[layer]
+        self.genericSEND("FREEZELAYER","{layer},{screen},{action:b}GCfrl".format(layer=layer,screen=screen,action=action))
+        self.st_freeze_layer[layer]=not self.st_freeze_layer[layer]
+
+    def displayed(self,layer):
+        """Change the previewed layer
+            <layer>GCply
+        """
+        self.genericSEND("DISPLAYLAYER","{layer}GCply".format(layer=layer))
+
     def updateFinished(self,screen):
         """Updates are finished being sent
              <screen>,1PUscu : Updates on screen <screen> are done
@@ -529,7 +577,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        self.getStatus(3)
+        # self.getStatus(3)
 
 
     #########################################
@@ -648,14 +696,25 @@ if __name__ == '__main__':
     #     ctrl1.close()
 
     ctrl1.changeLayer(0,0,1,1)
+    # time.sleep(1)
+    # # ctrl1.freezeScreenAll(1)
+    # ctrl1.freezeLayer(0,0,1)
+    # ctrl1.freezeLayer(1,0,1)
+    # time.sleep(1)
+    ctrl1.displayed(0)
+    # ctrl1.freezeScreenAll(1)
 
     # import random
-    # while True:
+
+    while True:
     #     ctrl1.changeLayer(0,1,1,random.randint(0,7))
     #     ctrl1.updateFinishedAll()
     #     ctrl1.takeAvailableAll()
     #     ctrl1.takeAll()
-    #     input(">>>")
+        input(">>>")
+        ctrl1.displayed(1)
+        ctrl1.updateFinishedAll()
+        ctrl1.freezeLayer(0,1)
 #     time.sleep(1)
 #     # ctrl1.takeAvailable((1,))
 # # take(self,screen)
