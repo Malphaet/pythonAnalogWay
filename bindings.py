@@ -142,6 +142,7 @@ _FILTER={
 # PROGRESS "PSprg99"
 # GCfrl ?
 # GCply
+# 0,0GCtio ?
 _MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
 
 _MATCHS={
@@ -157,18 +158,23 @@ _MATCHS={
     "GClrq":"LOADMM", #GClrq ?
     "CTqfl":"QUICKFA", #X,1CTqfl
     "CTqfa":"QUICKF", #1CTqfa
+    "PUscu":"SCRNUPD", #1PUscu
     "E":"ERROR"
 }
 
 _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
     "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
+    "SCRNUPD",
     "ERROR"
 ]
 
 _UPDATE_MSG=[
     "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF"
 ]
+# RELOAD_PROGRAM
+# FREEZE_SCREEN
+# FREEZE_ALL
 ################################
 # CLASS DEFINITIONS
 
@@ -289,6 +295,12 @@ class analogController(object):
         "Take answer 1"
         self.st_takeavailable=[False,False]
         if match.group("postargs")[-1]=="0":
+            return True
+        return False
+
+    def POSTMATCH_SCRNUPD(self,match):
+        "Take answer 1"
+        if match.group("postargs")[-1]=="1":
             return True
         return False
 
@@ -415,7 +427,9 @@ class analogController(object):
             # print(screen)
             self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
             # self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
-
+    def takeAvailableAll(self):
+        self.takeAvailable(*range(self.screens))
+        
     def take(self,screen):
         """ Take a specific screen
         [Wait for the TAKE availability on all screen] takeAvailable (screen1,screen2,etc...)
@@ -426,8 +440,9 @@ class analogController(object):
         (GCtav<scrn>,1) : Take is available
         """
         # Check if take available on all screens
+        self.updateFinished(screen)
         if self.st_takeavailable[screen]:
-            self.genericSEND("TAKE","{screen},1GCtak\n".format(screen=screen),timeout=_TIMEOUT_HUGE)
+            self.genericSEND("TAKE","{screen},1GCtak".format(screen=screen),timeout=_TIMEOUT_HUGE)
 
     def takeAll(self):
         """Take all screens
@@ -444,8 +459,12 @@ class analogController(object):
         """
         # Wait for all screens to be available
         # self.takeAvailable(0)#*range(self.screens))
+        self.updateFinishedAll()
         if self.st_takeavailable[0]&self.st_takeavailable[1]:
-            self.genericSEND("TAKEALL","1,GCtal\n",timeout=_TIMEOUT_BIG)
+            self.genericSEND("TAKEALL","1GCtal",timeout=_TIMEOUT_BIG)
+        else:
+            self.takeAvailableAll(screen)
+            self.takeAll()
 
 
     def loadMM(screenF,memory,screenT,ProgPrev,filter):
@@ -482,6 +501,16 @@ class analogController(object):
             action=not self.st_quickframeall
         self.genericSEND("QUICKFA","{action:b}CTqfl".format(action=action))
         self.st_quickframeall=action
+
+    def updateFinished(self,screen):
+        """Updates are finished being sent
+             <screen>,1PUscu : Updates on screen <screen> are done
+        """
+        self.genericSEND("SCRNUPD","{screen},1PUscu".format(screen=screen))
+
+    def updateFinishedAll(self):
+        for screen in range(self.screens):
+            self.updateFinished(screen)
 
     def connectionSequence(self):
         "Execute the full connection sequence"
@@ -581,6 +610,11 @@ class analogController(object):
         threading.Timer(timer,self.keepPinging,(timer,)).start()
         self._keepAlive()
 
+    def __del__(self):
+        self.sck.close()
+
+    def close(self):
+        self.__del__()
         # threading.Timer(self._keepPinging(timer),timer)
 #####################
 # TESTING
@@ -595,38 +629,37 @@ if __name__ == '__main__':
     #         time.sleep(0.5)
     #         ctrl1.changeLayer(0,1,2,i+1)
     #         time.sleep(1)
-    time.sleep(1)
-    import random
-    ctrl1.changeLayer(0,1,1,random.randint(0,7))
-    time.sleep(1)
-    # ctrl1.takeAvailable((1,))
-# take(self,screen)
-# takeAll(self)
-# loadMM(screenF,memory,screenT,ProgPrev,filter)
-    # ctrl1.quickFrame(0)
-    # time.sleep(1)
-    # ctrl1.quickFrame(0)
-    # time.sleep(1)
-    # ctrl1.quickFrame(0)
-#
-    # ctrl1.quickFrameAll(action=1)
-    # time.sleep(1)
-    # ctrl1.quickFrameAll()
+    # try:
+    #     while True:
+    #         txt=input("> ")
+    #         ctrl1.sendDirect(txt.encode())
+    # except KeyboardInterrupt:
+    #     ctrl1.close()
 
-    # ctrl1.takeAvailable(0)
-    # ctrl1.takeAvailable(0)
-    # ctrl1.takeAvailable(0)
-    # ctrl1.takeAvailable(0)
-    ctrl1.takeAvailable(0)
-    ctrl1.takeAvailable(1)
-    # ctrl1.takeAvailable(0)
-    # ctrl1.sendDirect("1,GCTav\n".encode())
-    # ctrl1.sendDirect("0,GCTav\n".encode())
-    time.sleep(2)
-    # time.sleep(1)
-    ctrl1.take(1)
-    # ctrl1.take(0)
-    # ctrl1.take(1)
-    # ctrl1.takeAll()
+
+    import random
+    while True:
+        ctrl1.changeLayer(0,1,1,random.randint(0,7))
+        ctrl1.updateFinishedAll()
+        ctrl1.takeAvailableAll()
+        ctrl1.takeAll()
+        input(">>>")
+#     time.sleep(1)
+#     # ctrl1.takeAvailable((1,))
+# # take(self,screen)
+# # takeAll(self)
+# # loadMM(screenF,memory,screenT,ProgPrev,filter)
+#     # ctrl1.quickFrame(0)
+#     # time.sleep(1)
+#     # ctrl1.quickFrame(0)
+#     # time.sleep(1)
+#     # ctrl1.quickFrame(0)
 # #
+#     # ctrl1.quickFrameAll(action=1)
+#     # time.sleep(1)
+#     # ctrl1.quickFrameAll()
+
+    # ctrl1.takeAvailable(1)
+
+
 #     ctrl1.keepPinging()
