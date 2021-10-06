@@ -12,7 +12,6 @@ from _thread import start_new_thread
 _IPSELF = "192.168.0.140" # Could be usefull for multi IP networks
 
 _HOSTS = [("192.168.0.140",10500)]
-_VERBOSE=True
 
 _MSGSIZE=4096
 _TIMEOUT=4
@@ -28,22 +27,28 @@ def _SYS_EXIT(system,*args):
     system.fatal=True
     sys.exit()
 
-if _VERBOSE:
-    def dprint(*args):
-        print(*args)
-    def spec_print(spec,*args):
-        dprint("[pAW:{}]".format(spec),*args) #(line@{}) ,sys._getframe().f_lineno
-    def iprint(*args):
-        spec_print("INFO",*args)
-    def wprint(*args):
-        spec_print("WARNING",*args)
-    def eprint(*args):
-        spec_print("ERROR",*args)
-else:
-    dprint=_NO_FUNCT
-    wprint=_NO_FUNCT
-    eprint=_NO_FUNCT
-    iprint=_NO_FUNCT
+
+_VERBOSE=2
+
+nopeF=lambda *x:None
+def printl(label=""):
+    def _pl(*args):
+        print(label,*args)
+    return _pl
+
+eprint=printl("[pAW:ERROR]")
+dprint=nopeF
+ddprint=nopeF
+iprint=nopeF
+wprint=nopeF
+if _VERBOSE>=1:
+    wprint=printl("[pAW:WARNING]")
+if _VERBOSE>=2:
+    iprint=printl("[pAW:INFO]")
+if _VERBOSE>=3:
+    dprint=printl("[pAW:DEBUG]")
+if _VERBOSE>=4:
+    ddprint=printl("[pAW:DDEBUG]")
 
 
 class pyNope(object):
@@ -159,18 +164,20 @@ _MATCHS={
     "CTqfl":"QUICKFA", #X,1CTqfl
     "CTqfa":"QUICKF", #1CTqfa
     "PUscu":"SCRNUPD", #1PUscu
+    "GCfsc":"FREEZE",
+    "GCfra":"FREEZEALL",
     "E":"ERROR"
 }
 
 _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
     "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
-    "SCRNUPD",
+    "SCRNUPD","FREEZE","FREEZEALL",
     "ERROR"
 ]
 
 _UPDATE_MSG=[
-    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF"
+    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL",
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -202,15 +209,15 @@ class analogController(object):
         self.POSTMATCHACTIONS={i:self.getAttr("POSTMATCH_{}".format(i),self.POSTMATCH_GENERIC) for i in _ALL_MESSAGE_TYPES}
 
         try:
-            iprint('Creating socket')
+            dprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            iprint('Getting remote IP address')
+            dprint('Getting remote IP address')
             remote_ip = socket.gethostbyname(_IPSELF)
         except socket.error:
-            print('[pAW:ERROR] Failed to create socket')
+            eprint('Failed to create socket')
             sys.exit()
         except socket.gaierror:
-            print('[pAW:ERROR] Hostname could not be resolved. Exiting')
+            eprint('Hostname could not be resolved. Exiting')
             sys.exit()
 
     def getAttr(self,attribute,default):
@@ -304,6 +311,7 @@ class analogController(object):
             return True
         return False
 
+
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
     #     if match.group("postargs")[-1]=="1":
@@ -324,16 +332,17 @@ class analogController(object):
                 if typ in _UPDATE_MSG:
                     return self.feedback.messageReceived(typ,match)
                 else:
-                    wprint("Ignoring message",match)
+                    dprint("Ignoring message",match)
                 return status
         except RuntimeError as e:
-            iprint("Lock [{}] is already released (async terminated earlier)".format(typ))
-            iprint("This message is either comming from the device or garbage data")
-            iprint(e)
+            dprint("Lock [{}] is already released (async terminated earlier)".format(typ))
+            dprint("This message is either comming from the device or garbage data")
+            dprint(e)
         except KeyError as e:
             eprint("There is no lock associated with {}".format(typ))
             print(e)
         return False
+
     ##############################################
     # LOCKS
     def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
@@ -344,17 +353,17 @@ class analogController(object):
 
     def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
         """Thread waiting for a lock"""
-        iprint("Checking for [{}] lock avaivability".format(lockname))
+        dprint("Checking for [{}] lock avaivability".format(lockname))
         if not self._LOCKS[lockname].locked(): #The state it's supposed to be in, but let's not be too sure
             self._LOCKS[lockname].acquire(timeout=0.01)
         # Now wait for the lock to be released
-        iprint("Acquired [{}] : Locking".format(lockname))
+        dprint("Acquired [{}] : Locking".format(lockname))
         status=self._LOCKS[lockname].acquire(timeout=timeout)
         if status:
-            iprint("Lock [{}] passed succesfully".format(lockname))
+            dprint("Lock [{}] passed succesfully".format(lockname))
             function_success(args_success)
         else:
-            iprint("Failed to aquire [{}]".format(lockname))
+            eprint("Failed to aquire [{}]".format(lockname))
             function_error(args_error)
         return status
 
@@ -363,7 +372,7 @@ class analogController(object):
 
     def genericSEND(self,lock,send,fatal=True,*args,**kwargs):
         "Generic send and join method, with all the logic on the controler side"
-        iprint("Acquiring {}".format(lock.lower()))
+        dprint("Acquiring {}".format(lock.lower()))
         # self.st_takeavailable=[False,False] # ?
         wait=self.waitLock(lock,function_error=_SYS_EXIT,args_error=(self),*args,**kwargs)
         self.sendData(send)
@@ -429,7 +438,7 @@ class analogController(object):
             # self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
     def takeAvailableAll(self):
         self.takeAvailable(*range(self.screens))
-        
+
     def take(self,screen):
         """ Take a specific screen
         [Wait for the TAKE availability on all screen] takeAvailable (screen1,screen2,etc...)
@@ -502,6 +511,8 @@ class analogController(object):
         self.genericSEND("QUICKFA","{action:b}CTqfl".format(action=action))
         self.st_quickframeall=action
 
+    def freezeScreen(self,screen):
+        """"""
     def updateFinished(self,screen):
         """Updates are finished being sent
              <screen>,1PUscu : Updates on screen <screen> are done
@@ -518,7 +529,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        # self.getStatus(3)
+        self.getStatus(3)
 
 
     #########################################
@@ -558,7 +569,7 @@ class analogController(object):
             try:
                 iprint ("<<< Received:",message)
                 RX_MTCH=_MESSAGE_REGEX.match(message)
-                iprint("preargs:{} - msg:{} - postargs:{}".format(RX_MTCH.group("preargs"),RX_MTCH.group("msg"),RX_MTCH.group("postargs")))
+                dprint("preargs:{} - msg:{} - postargs:{}".format(RX_MTCH.group("preargs"),RX_MTCH.group("msg"),RX_MTCH.group("postargs")))
                 start_new_thread(self.processMatch,(RX_MTCH,)) # Here lies the problem, damned if I do, damned if I don't
             except AttributeError as e:
                 eprint("Regex couldn't find a match")
@@ -636,14 +647,15 @@ if __name__ == '__main__':
     # except KeyboardInterrupt:
     #     ctrl1.close()
 
+    ctrl1.changeLayer(0,0,1,1)
 
-    import random
-    while True:
-        ctrl1.changeLayer(0,1,1,random.randint(0,7))
-        ctrl1.updateFinishedAll()
-        ctrl1.takeAvailableAll()
-        ctrl1.takeAll()
-        input(">>>")
+    # import random
+    # while True:
+    #     ctrl1.changeLayer(0,1,1,random.randint(0,7))
+    #     ctrl1.updateFinishedAll()
+    #     ctrl1.takeAvailableAll()
+    #     ctrl1.takeAll()
+    #     input(">>>")
 #     time.sleep(1)
 #     # ctrl1.takeAvailable((1,))
 # # take(self,screen)
