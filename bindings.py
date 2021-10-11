@@ -12,7 +12,6 @@ from _thread import start_new_thread
 _IPSELF = "192.168.0.140" # Could be usefull for multi IP networks
 
 _HOSTS = [("192.168.0.140",10500)]
-_VERBOSE=True
 
 _MSGSIZE=4096
 _TIMEOUT=4
@@ -28,22 +27,28 @@ def _SYS_EXIT(system,*args):
     system.fatal=True
     sys.exit()
 
-if _VERBOSE:
-    def dprint(*args):
-        print(*args)
-    def spec_print(spec,*args):
-        dprint("[pAW:{}]".format(spec),*args) #(line@{}) ,sys._getframe().f_lineno
-    def iprint(*args):
-        spec_print("INFO",*args)
-    def wprint(*args):
-        spec_print("WARNING",*args)
-    def eprint(*args):
-        spec_print("ERROR",*args)
-else:
-    dprint=_NO_FUNCT
-    wprint=_NO_FUNCT
-    eprint=_NO_FUNCT
-    iprint=_NO_FUNCT
+
+_VERBOSE=4
+
+nopeF=lambda *x:None
+def printl(label=""):
+    def _pl(*args):
+        print(label,*args)
+    return _pl
+
+eprint=printl("[pAW:ERROR]")
+dprint=nopeF
+ddprint=nopeF
+iprint=nopeF
+wprint=nopeF
+if _VERBOSE>=1:
+    wprint=printl("[pAW:WARNING]")
+if _VERBOSE>=2:
+    iprint=printl("[pAW:INFO]")
+if _VERBOSE>=3:
+    dprint=printl("[pAW:DEBUG]")
+if _VERBOSE>=4:
+    ddprint=printl("[pAW:DDEBUG]")
 
 
 class pyNope(object):
@@ -141,7 +146,7 @@ _FILTER={
 
 # PROGRESS "PSprg99"
 # GCfrl ?
-# GCply
+# 0,0GCtio ?
 _MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
 
 _MATCHS={
@@ -152,20 +157,32 @@ _MATCHS={
     "SYpig":"KPALIVE",
     "PRinp":"LAYERINP", #?
     "GCtak":"TAKE", #GCtak<scrn>,0
+    "GCtav":"TAKEAVL",
     "GCtal":"TAKEALL", #GCtal0
     "GClrq":"LOADMM", #GClrq ?
     "CTqfl":"QUICKFA", #X,1CTqfl
     "CTqfa":"QUICKF", #1CTqfa
+    "PUscu":"SCRNUPD", #1PUscu
+    "GCfsc":"FREEZE",
+    "GCfra":"FREEZEALL",
+    "GCfrl":"FREEZELAYER",
+    "GCply":"DISPLAYLAYER",
+    "E":"ERROR"
 }
 
 _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
-    "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF"
+    "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
+    "SCRNUPD","FREEZE","FREEZEALL","FREEZELAYER","DISPLAYLAYER",
+    "ERROR"
 ]
 
 _UPDATE_MSG=[
-    "LAYERINP","QUICKFA","QUICKF",
+    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER",
 ]
+# RELOAD_PROGRAM
+# FREEZE_SCREEN
+# FREEZE_ALL
 ################################
 # CLASS DEFINITIONS
 
@@ -182,9 +199,13 @@ class analogController(object):
         self.fatal=False
         self.lastping=0
         self.st_quickframe=[False,False]
+        self.st_takeavailable=[False,False]
         self.st_quickframeall=False
         self._connectedLock=threading.Lock()
         self._connectedLock.acquire() # Waiting for connection
+        self.st_freeze=[False,False]
+        self.st_freeze_all=False
+        self.st_freeze_layer=[False,False]
         self.feedback=feedbackInterface # Feedback interface gui or midiRebind
         self._LOCKS={i:threading.Lock() for i in _ALL_MESSAGE_TYPES} #LAYERINP could actually be a huge clusterlock, not for now tho
         # for i in range(2):
@@ -194,16 +215,16 @@ class analogController(object):
         self.POSTMATCHACTIONS={i:self.getAttr("POSTMATCH_{}".format(i),self.POSTMATCH_GENERIC) for i in _ALL_MESSAGE_TYPES}
 
         try:
-            iprint('Creating socket')
+            dprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             # iprint('Getting remote IP address')
             # remote_ip = socket.gethostbyname(_IPSELF)
             # iprint(remote_ip)
         except socket.error:
-            print('[pAW:ERROR] Failed to create socket')
+            eprint('Failed to create socket')
             sys.exit()
         except socket.gaierror:
-            print('[pAW:ERROR] Hostname could not be resolved. Exiting')
+            eprint('Hostname could not be resolved. Exiting')
             sys.exit()
 
     def getAttr(self,attribute,default):
@@ -217,6 +238,7 @@ class analogController(object):
     # RECEIVE ANALISIS
     def POSTMATCH_GENERIC(self,match):
         "Expects a 0 as last argument to proceed"
+        self.st_takeavailable=[False,False]
         if match.group("postargs").split(",")[-1]!="0":
             return False
         return True
@@ -233,14 +255,32 @@ class analogController(object):
         "Accepts any version"
         return True
 
+    def POSTMATCH_LAYERINP(self,match):
+        "Accepts any layer configuration"
+        self.st_takeavailable=[False,False]
+        return True
+
     def POSTMATCH_KPALIVE(self,match):
         "Accepts only the invert of last ping"
         if match.group("postargs")!=str(0xFFFFFFFF^self.lastping):
-            return False
+            wprint("Sent {:b} | Expected {:b} and got {:b}".format(self.lastping,0xFFFFFFFF^self.lastping,int(match.group("postargs"))))
+            return True
         return True
+
+    def POSTMATCH_ERROR(self,match):
+        "Error message"
+        self.st_takeavailable=[False,False]
+        eprint("An error has occured on the machine side:")
+        if match.group("postargs")=="10":
+            eprint("Command name error. It is usually due to a command field (i.e. five letters) that does not match any legal command string")
+        elif match.group("postargs")=="11":
+            eprint("Index value out of range. It is usually due to a wrong index value.")
+        elif match.group("postargs")=="12":
+            eprint("Index number error. It is usually due to an incorrect number of indexes, too much or not enough.")
 
     def POSTMATCH_QUICKF(self,match):
         "Update quickframe status"
+        self.st_takeavailable=[False,False]
         screen,status=match.group("postargs").split(",")
         screen,status=int(screen),int(status)
         self.st_quickframe[screen]=status
@@ -248,11 +288,55 @@ class analogController(object):
 
     def POSTMATCH_QUICKFA(self,match):
         "Update quickFrameAll status"
+        self.st_takeavailable=[False,False]
         status=int(match.group("postargs"))
         for i in range(len(self.st_quickframe)):
             self.st_quickframe[i]=status
         self.st_quickframeall=status
         return True
+
+    def POSTMATCH_TAKEAVL(self,match):
+        "Take available answer 1"
+        # Write take availability
+        scr,avail=match.group("postargs").split(",")
+        if avail=="1":
+            self.st_takeavailable[int(scr)]=True
+            return True
+        self.st_takeavailable[int(scr)]=False
+        return False
+
+    def POSTMATCH_TAKE(self,match):
+        "Take answer 1"
+        self.st_takeavailable=[False,False]
+        if match.group("postargs")[-1]=="0":
+            return True
+        return False
+
+    def POSTMATCH_SCRNUPD(self,match):
+        "Take answer 1"
+        if match.group("postargs")[-1]=="1":
+            return True
+        return False
+
+    def POSTMATCH_FREEZEALL(self,match):
+        "Take answer 1"
+        if match.group("postargs")[-1]=="1":
+            return True
+        return False
+
+    def POSTMATCH_DISPLAYLAYER(self,match):
+        "Returns the displayed layer"
+        return True
+
+    def POSTMATCH_FREEZELAYER(self,match):
+        "Returns the layer,screen and status of the freeze"
+        return True
+
+    # def POSTMATCH_TAKEAVL(self,match):
+    #     "Take available answer 1"
+    #     if match.group("postargs")[-1]=="1":
+    #         return True
+    #     return False
     ################################
     # MESSAGE RECEIVE
     def genericRECEIVE(self,match):
@@ -268,16 +352,17 @@ class analogController(object):
                 if typ in _UPDATE_MSG:
                     return self.feedback.messageReceived(typ,match)
                 else:
-                    wprint("Ignoring message",match)
+                    dprint("Ignoring message",match)
                 return status
         except RuntimeError as e:
-            iprint("Lock [{}] is already released (async terminated earlier)".format(typ))
-            iprint("This message is either comming from the device or garbage data")
-            iprint(e)
+            dprint("Lock [{}] is already released (async terminated earlier)".format(typ))
+            dprint("This message is either comming from the device or garbage data")
+            dprint(e)
         except KeyError as e:
             eprint("There is no lock associated with {}".format(typ))
             print(e)
         return False
+
     ##############################################
     # LOCKS
     def waitLock(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
@@ -288,17 +373,17 @@ class analogController(object):
 
     def _initLockWait(self,lockname,function_success=_NO_FUNCT,args_success=(),function_error=_NO_FUNCT,args_error=(),timeout=_TIMEOUT):
         """Thread waiting for a lock"""
-        iprint("Checking for [{}] lock avaivability".format(lockname))
+        dprint("Checking for [{}] lock avaivability".format(lockname))
         if not self._LOCKS[lockname].locked(): #The state it's supposed to be in, but let's not be too sure
             self._LOCKS[lockname].acquire(timeout=0.01)
         # Now wait for the lock to be released
-        iprint("Acquired [{}] : Locking".format(lockname))
+        dprint("Acquired [{}] : Locking".format(lockname))
         status=self._LOCKS[lockname].acquire(timeout=timeout)
         if status:
-            iprint("Lock [{}] passed succesfully".format(lockname))
+            dprint("Lock [{}] passed succesfully".format(lockname))
             function_success(args_success)
         else:
-            iprint("Failed to aquire [{}]".format(lockname))
+            eprint("Failed to aquire [{}]".format(lockname))
             function_error(args_error)
         return status
 
@@ -307,7 +392,8 @@ class analogController(object):
 
     def genericSEND(self,lock,send,fatal=True,*args,**kwargs):
         "Generic send and join method, with all the logic on the controler side"
-        iprint("Acquiring {}".format(lock.lower()))
+        dprint("Acquiring {}".format(lock.lower()))
+        # self.st_takeavailable=[False,False] # ?
         wait=self.waitLock(lock,function_error=_SYS_EXIT,args_error=(self),*args,**kwargs)
         self.sendData(send)
         wait.join()
@@ -323,28 +409,29 @@ class analogController(object):
         self.sck.connect((self.ip,self.port))
         self._connectedLock.release()
         self.genericSEND("CONNECT","*")
+        self.genericSEND("CONNECT","*\r\n")
 
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
         """
-        self.genericSEND("DEVICE","?")
+        self.genericSEND("DEVICE","?\r\n")
 
     def getVersion(self):
         """his read only command gives the version number of the command set.
         It is recommended to check that this value matches the one expected by the controller.
         [VEvar] (VEvar<version>)
         """
-        self.genericSEND("VERSION","VEvar")
+        self.genericSEND("VERSION","VEvar\r\n")
 
-    def getStatus(self,value=3):
+    def getStatus(self,value=1,timeout=_TIMEOUT_HUGE):
         """Reading a change of values
         [<value>#] (# <rvalue>) The controller must wait for <rvalue> to equals 0 for the end of enumeration
         <value>:1 All register values 3: Only non default values
         """
-        self.genericSEND("STATUS",'#{}'.format(value),timeout=_TIMEOUT_BIG)
+        self.genericSEND("STATUS",'{}#'.format(value),timeout=timeout)
 
-    def _keepAlive(self,val=1):
+    def _keepAlive(self,val=0x0000):
         """Send a keepalive to check (and ensure) the connection is still up
         [<val1>SYpig] Will return the invert of the value sent: 0x0000 0000 will return 0xFFFF FFFF
         """
@@ -366,8 +453,13 @@ class analogController(object):
         [<scrn>,GCtav] Test take availability on screen <scrn>
         (GCtav<scrn>,0) : Take is unavailable
         (GCtav<scrn>,1) : Take is available"""
+        self.st_takeavailable=[False,False]
         for screen in screens:
-            self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_BIG)
+            # print(screen)
+            self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
+            # self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
+    def takeAvailableAll(self):
+        self.takeAvailable(*range(self.screens))
 
     def take(self,screen):
         """ Take a specific screen
@@ -379,7 +471,9 @@ class analogController(object):
         (GCtav<scrn>,1) : Take is available
         """
         # Check if take available on all screens
-        self.genericSEND("TAKE","{screen},1GCtak".format(screen=screen),timeout=_TIMEOUT_BIG)
+        self.updateFinished(screen)
+        if self.st_takeavailable[screen]:
+            self.genericSEND("TAKE","{screen},1GCtak".format(screen=screen),timeout=_TIMEOUT_HUGE)
 
     def takeAll(self):
         """Take all screens
@@ -395,9 +489,13 @@ class analogController(object):
         (GCtak<scrn>,1) : Take is available
         """
         # Wait for all screens to be available
-        self.takeAvailable(range(self.screens))
-        self.genericSEND("TAKEALL","1,GCtal",timeout=_TIMEOUT_BIG)
-
+        # self.takeAvailable(0)#*range(self.screens))
+        self.updateFinishedAll()
+        if self.st_takeavailable[0]&self.st_takeavailable[1]:
+            self.genericSEND("TAKEALL","1GCtal",timeout=_TIMEOUT_BIG)
+        else:
+            self.takeAvailableAll(screen)
+            self.takeAll()
 
     def loadMM(screenF,memory,screenT,ProgPrev,filter):
         """Load a master memory to a screen
@@ -420,7 +518,8 @@ class analogController(object):
         """
         if action == None:
             action=not self.st_quickframe[screen]
-        self.genericSEND("QUICKF","{screen},{action}CTqfa".format(screen=screen,action=action))
+        self.genericSEND("QUICKF","{screen},{action:b}CTqfa".format(screen=screen,action=action))
+        # self.sendDirect("{screen},{action}CTqfa".format(screen=screen,action=action).encode())
         self.st_quickframe[screen]=action
 
     def quickFrameAll(self,action=None):
@@ -430,8 +529,52 @@ class analogController(object):
         """
         if action == None:
             action=not self.st_quickframeall
-        self.genericSEND("QUICKFA","{action}CTqfl".format(action=action))
+        self.genericSEND("QUICKFA","{action:b}CTqfl".format(action=action))
         self.st_quickframeall=action
+
+    def freezeScreen(self,screen,action=False):
+        """Freeze screen <screen>
+            <screen>,1GCfsc: Freeze screen
+            <screen>,0GCfsc: Un Freeze screen ?
+        """
+        if action==None:
+            action=not self.st_freeze[screen]
+        self.genericSEND("FREEZE","{screen},{action:b}GCfsc".format(screen=screen,action=action))
+        self.st_freeze[screen]=not action
+
+    def freezeScreenAll(self,action=None):
+        """Freeze all screens
+            1GCfra: Freeze screen
+        """
+        if action==None:
+            action=self.st_freeze_all
+        self.genericSEND("FREEZEALL","{action:b}GCfra".format(action=action))
+        self.st_freeze_all=not self.st_freeze_all
+
+    def freezeLayer(self,layer,screen,action=None):
+        """Freeze layer <layer> on <screen>
+        <layer>,<screen>,<action>GCfrl: Freeze screen
+        """
+        if action==None:
+            action=self.st_freeze_layer[layer]
+        self.genericSEND("FREEZELAYER","{layer},{screen},{action:b}GCfrl".format(layer=layer,screen=screen,action=action))
+        self.st_freeze_layer[layer]=not self.st_freeze_layer[layer]
+
+    def displayed(self,layer):
+        """Change the previewed layer
+            <layer>GCply
+        """
+        self.genericSEND("DISPLAYLAYER","{layer}GCply".format(layer=layer))
+
+    def updateFinished(self,screen):
+        """Updates are finished being sent
+             <screen>,1PUscu : Updates on screen <screen> are done
+        """
+        self.genericSEND("SCRNUPD","{screen},1PUscu".format(screen=screen))
+
+    def updateFinishedAll(self):
+        for screen in range(self.screens):
+            self.updateFinished(screen)
 
     def connectionSequence(self):
         "Execute the full connection sequence"
@@ -439,7 +582,8 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        self.getStatus()
+        # self.getStatus(3)
+
 
     #########################################
     # SOCKET METHODS
@@ -471,8 +615,9 @@ class analogController(object):
             except AttributeError as e:
                 dprint(e)
             except OSError as e:
-                dprint(e)
-                dprint('The socket connection is experiencing issues')
+                eprint(e)
+                eprint('The socket connection is experiencing issues')
+
 
     def socketLoop(self):
         """Loop on the socket and create an event for every message received"""
@@ -480,13 +625,13 @@ class analogController(object):
         self._connectedLock.acquire(_TIMEOUT_BIG) # Wait for connection
         for message in self.cleanReceive():
             try:
-                iprint ("Received:",message)
+                iprint ("<<< Received:",message)
                 RX_MTCH=_MESSAGE_REGEX.match(message)
-                iprint("preargs:{} - msg:{} - postargs:{}".format(RX_MTCH.group("preargs"),RX_MTCH.group("msg"),RX_MTCH.group("postargs")))
+                dprint("preargs:{} - msg:{} - postargs:{}".format(RX_MTCH.group("preargs"),RX_MTCH.group("msg"),RX_MTCH.group("postargs")))
                 start_new_thread(self.processMatch,(RX_MTCH,)) # Here lies the problem, damned if I do, damned if I don't
             except AttributeError as e:
-                dprint("[pAW:ERROR] Regex couldn't find a match")
-                dprint(e)
+                eprint("Regex couldn't find a match")
+                eprint(e)
 
     def processMatch(self,match):
         """Process a match with a message, should only be called by the socketLoop funciton"""
@@ -495,13 +640,23 @@ class analogController(object):
             # self.__getattribute__("receive_{}".format(name),default="GENERIC")(match)
             return self.genericRECEIVE(match)
         except KeyError as e:
-            dprint("[pAW:ERROR] Can't find matched key:",match)
-            print(e)
+            # dprint("[pAW:ERROR] Can't find matched key:",match)
+            # print(e)
+            pass
+
+    def sendDirect(self,direct):
+        "Directly sent to the socket"
+        try:
+            iprint(">>> Sending direct: {}".format(direct))
+            self.sck.sendall(direct)
+        except:
+            eprint("Error sending data: ",direct)
 
     def sendData(self,data):
         "Send data through the socket"
         try:
-            self.sck.sendall((data+'\r\n').encode())
+            iprint(">>> Sending data: {}".format(data.replace("\n","")))
+            self.sck.sendall((data).encode())
         except socket.error:
             print ('[pAW:ERROR] Send failed of data :',data)
             sys.exit()
@@ -514,7 +669,7 @@ class analogController(object):
     def pingLoop(self):
         "Another limbo wait, this time with pings"
         while not self.fatal:
-            self._keepAlive()
+            self._keepAlive(val=0b1000)
             time.sleep(_TIMEOUT_HUGE)
 
     def keepPinging(self,timer=_TIMEOUT_HUGE):
@@ -524,12 +679,68 @@ class analogController(object):
         threading.Timer(timer,self.keepPinging,(timer,)).start()
         self._keepAlive()
 
+    def __del__(self):
+        self.sck.close()
+
+    def close(self):
+        self.__del__()
         # threading.Timer(self._keepPinging(timer),timer)
 #####################
 # TESTING
 if __name__ == '__main__':
     _HOSTS=[["127.0.0.1",3000]] # Test server
-    _TIMEOUT_HUGE=1
+    _TIMEOUT_HUGE=5
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.connectionSequence()
-    ctrl1.keepPinging()
+    # while True:
+    #     for i in range(8):
+    #         ctrl1.changeLayer(0,1,1,i+1)
+    #         time.sleep(0.5)
+    #         ctrl1.changeLayer(0,1,2,i+1)
+    #         time.sleep(1)
+    # try:
+    #     while True:
+    #         txt=input("> ")
+    #         ctrl1.sendDirect(txt.encode())
+    # except KeyboardInterrupt:
+    #     ctrl1.close()
+
+    ctrl1.changeLayer(0,0,1,1)
+    # time.sleep(1)
+    # # ctrl1.freezeScreenAll(1)
+    # ctrl1.freezeLayer(0,0,1)
+    # ctrl1.freezeLayer(1,0,1)
+    # time.sleep(1)
+    ctrl1.displayed(0)
+    # ctrl1.freezeScreenAll(1)
+
+    # import random
+
+    # while True:
+    # #     ctrl1.changeLayer(0,1,1,random.randint(0,7))
+    # #     ctrl1.updateFinishedAll()
+    # #     ctrl1.takeAvailableAll()
+    # #     ctrl1.takeAll()
+    #     input(">>>")
+    #     ctrl1.displayed(1)
+    #     ctrl1.updateFinishedAll()
+    #     ctrl1.freezeLayer(0,1)
+#     time.sleep(1)
+#     # ctrl1.takeAvailable((1,))
+# # take(self,screen)
+# # takeAll(self)
+# # loadMM(screenF,memory,screenT,ProgPrev,filter)
+#     # ctrl1.quickFrame(0)
+#     # time.sleep(1)
+#     # ctrl1.quickFrame(0)
+#     # time.sleep(1)
+#     # ctrl1.quickFrame(0)
+# #
+#     # ctrl1.quickFrameAll(action=1)
+#     # time.sleep(1)
+#     # ctrl1.quickFrameAll()
+
+    # ctrl1.takeAvailable(1)
+
+
+#     ctrl1.keepPinging()
