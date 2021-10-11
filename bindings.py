@@ -408,7 +408,6 @@ class analogController(object):
         iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
         self.sck.connect((self.ip,self.port))
         self._connectedLock.release()
-        self.genericSEND("CONNECT","*")
         self.genericSEND("CONNECT","*\r\n")
 
     def getDevice(self):
@@ -582,7 +581,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        # self.getStatus(3)
+        self.getStatus(3)
 
 
     #########################################

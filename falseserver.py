@@ -10,10 +10,10 @@ def sequenceAnswers(s,addr,seq,delay=_DELAY):
         # s.sendall("*\r\n".encode)
         recv=b""
         for elt,resps in seq:
-            elt=(elt+'\r\n').encode()
-            resps=[(i+'\r\n').encode() for i in resps]
+            elt=(elt).encode()
+            resps=[(i+"\r\n").encode() for i in resps]
             print("[{}] Waiting for {}".format(name,elt))
-            while recv!=elt:
+            while recv not in elt:
                 recv=s.recv(4095)
                 print("[{}] Received : {}".format(name,recv))
             for r in resps:
