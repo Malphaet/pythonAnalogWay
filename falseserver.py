@@ -20,11 +20,28 @@ def sequenceAnswers(s,addr,seq,delay=_DELAY):
                 print("[{}] Sending : {}".format(name,r))
                 time.sleep(delay)
                 s.sendall(r)
-        while True:
-            print(s.recv(4096).decode())
     except ConnectionResetError as e:
         print("[{}] Has stopped the connection".format(name))
         print(e)
+
+
+import re
+_MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
+
+def parrotanswers(s,addr,seq,delay=_DELAY):
+    "Parrot all messages given"
+    try:
+        sequenceAnswers(s,addr,seq,delay=_DELAY)
+        while True:
+            recv=s.recv(3000)
+            match=_MESSAGE_REGEX.match(recv.decode())
+            msg=match.group("msg")+match.group("preargs")
+            print("[{}] Received : {} | Sending {}".format(addr[1],recv,msg))
+            s.sendall(msg.encode())
+    except ConnectionResetError as e:
+        print("[{}] Has stopped the connection".format(addr[1]))
+        print(e)
+
 def Main(delay=_DELAY):
     host = "127.0.0.1"
 
@@ -45,7 +62,7 @@ def Main(delay=_DELAY):
         c, addr = s.accept()
         # print(c.recv(4000))
         # c.sendall(b"*\r\n")
-        start_new_thread(sequenceAnswers, (c,addr,sequence,delay,))
+        start_new_thread(parrotanswers, (c,addr,sequence,delay,))
     s.close()
 
 
