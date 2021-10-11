@@ -183,6 +183,8 @@ class analogController(object):
         self.lastping=0
         self.st_quickframe=[False,False]
         self.st_quickframeall=False
+        self._connectedLock=threading.Lock()
+        self._connectedLock.acquire() # Waiting for connection
         self.feedback=feedbackInterface # Feedback interface gui or midiRebind
         self._LOCKS={i:threading.Lock() for i in _ALL_MESSAGE_TYPES} #LAYERINP could actually be a huge clusterlock, not for now tho
         # for i in range(2):
@@ -194,8 +196,9 @@ class analogController(object):
         try:
             iprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            iprint('Getting remote IP address')
-            remote_ip = socket.gethostbyname(_IPSELF)
+            # iprint('Getting remote IP address')
+            # remote_ip = socket.gethostbyname(_IPSELF)
+            # iprint(remote_ip)
         except socket.error:
             print('[pAW:ERROR] Failed to create socket')
             sys.exit()
@@ -318,6 +321,7 @@ class analogController(object):
         """
         iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
         self.sck.connect((self.ip,self.port))
+        self._connectedLock.release()
         self.genericSEND("CONNECT","*")
 
     def getDevice(self):
@@ -466,10 +470,14 @@ class analogController(object):
                         yield r
             except AttributeError as e:
                 dprint(e)
+            except OSError as e:
+                dprint(e)
+                dprint('The socket connection is experiencing issues')
 
     def socketLoop(self):
         """Loop on the socket and create an event for every message received"""
         self.listening=True
+        self._connectedLock.acquire(_TIMEOUT_BIG) # Wait for connection
         for message in self.cleanReceive():
             try:
                 iprint ("Received:",message)
