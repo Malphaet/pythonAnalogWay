@@ -37,7 +37,7 @@ def parrotanswers(s,addr,seq,delay=_DELAY):
             match=_MESSAGE_REGEX.match(recv.decode())
             msg=match.group("msg")+match.group("preargs")
             print("[{}] Received : {} | Sending {}".format(addr[1],recv,msg))
-            s.sendall(msg.encode())
+            s.sendall((msg+"\r\n").encode())
     except ConnectionResetError as e:
         print("[{}] Has stopped the connection".format(addr[1]))
         print(e)
@@ -71,8 +71,8 @@ if __name__ == '__main__':
         ("*",["VEvar13","#0","VEvar13","*1"]),
         ("?",['DEV259']),
         ("VEvar",["VEvar13"]), #Guess
-        ("#3",["#4","PRinp0,1,7,8","PRinp0,1,1,8","#0"]), #Another guess
+        ("#3",["ISsva4,3,1","ISsva3,3,1","ISsva1,3,1","PRinp0,1,7,8","PRinp0,1,1,8","#0"]), #Another guess
         ("1SYpig",["SYpig4294967294"]) #Another guess
 
         ]
-    Main(0.5)
+    Main(0.05)

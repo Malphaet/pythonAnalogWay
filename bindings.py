@@ -28,7 +28,7 @@ def _SYS_EXIT(system,*args):
     sys.exit()
 
 
-_VERBOSE=4
+_VERBOSE=3
 
 nopeF=lambda *x:None
 def printl(label=""):
@@ -167,6 +167,7 @@ _MATCHS={
     "GCfra":"FREEZEALL",
     "GCfrl":"FREEZELAYER",
     "GCply":"DISPLAYLAYER",
+    "ISsva":"DETECTED",
     "E":"ERROR"
 }
 
@@ -174,11 +175,11 @@ _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
     "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
     "SCRNUPD","FREEZE","FREEZEALL","FREEZELAYER","DISPLAYLAYER",
-    "ERROR"
+    "ERROR","DETECTED",
 ]
 
 _UPDATE_MSG=[
-    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER",
+    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER","DETECTED",
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -226,6 +227,10 @@ class analogController(object):
         except socket.gaierror:
             eprint('Hostname could not be resolved. Exiting')
             sys.exit()
+
+    def addFeedbackInterface(self,feedback):
+        "Add the feedback interface TODO: Several feedback interfaces ?"
+        self.feedback=feedback
 
     def getAttr(self,attribute,default):
         "A custom attribute fetcher"
@@ -332,6 +337,9 @@ class analogController(object):
         "Returns the layer,screen and status of the freeze"
         return True
 
+    def POSTMATCH_DETECTED(self,match):
+        "Return the status of the input"
+        return True
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
     #     if match.group("postargs")[-1]=="1":
