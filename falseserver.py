@@ -3,41 +3,62 @@ from _thread import start_new_thread
 
 _DELAY=0.5
 
-def sequenceAnswers(s,addr,seq,delay=_DELAY):
-    try:
-        name=addr[1]
-        print("[{}] Connected".format(name))
-        # s.sendall("*\r\n".encode)
-        recv=b""
-        for elt,resps in seq:
-            elt=(elt).encode()
-            resps=[(i+"\r\n").encode() for i in resps]
-            print("[{}] Waiting for {}".format(name,elt))
-            while recv not in elt:
-                recv=s.recv(4095)
-                print("[{}] Received : {}".format(name,recv))
-            for r in resps:
-                print("[{}] Sending : {}".format(name,r))
-                time.sleep(delay)
-                s.sendall(r)
-
-    except ConnectionResetError as e:
-        print("[{}] Has stopped the connection".format(name))
-        print(e)
-
-
 import re
 _MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
 
-def parrotanswers(s,addr,seq,delay=_DELAY):
-    "Parrot all messages given"
+class Answer(object):
+    "Output an answer to a message"
+    def __init__(self,function):
+        if type(function)==str:
+            self.function=lambda x:function
+        else:
+            self.function=function
+
+    def __add__(self,other):
+        if type(other)==str:
+            other=Answer(other)
+        def new_funct(match):
+            return self.function(match)+other.function(match)
+        return Answer(new_funct)
+
+    def __radd__(self,other):
+        if type(other)==str:
+            def new_funct(match):
+                return other+self.function
+            return new_funct
+        else:
+            raise TypeError
+
+    def __call__(self,match):
+        return self.function(match)
+
+__=Answer(lambda x:"")
+_ARG=Answer(lambda x:x.group("preargs"))
+_0=Answer(lambda x:"0")
+_1=Answer(lambda x:"1")
+_MSG=Answer(lambda x:x.group("msg"))
+_RN=Answer(lambda x:"\r\n")
+
+_goodanswers={
+    "*\r\n":_MSG+_1+_RN,
+    "?\r\n":Answer("DEV259")+_RN,
+    "VEvar":_MSG+_RN,
+    "#":_MSG+_0,
+    "PRinp":_MSG+_ARG,
+    "PUscu":_MSG+_ARG,
+    "_":_MSG+_ARG,
+}
+def goodServer(s,addr,delay=_DELAY):
+    "Give good-ish answers to queries"
     try:
-        sequenceAnswers(s,addr,seq,delay=_DELAY)
         while True:
             recv=s.recv(3000)
             match=_MESSAGE_REGEX.match(recv.decode())
-            msg=match.group("msg")+match.group("preargs")
-            print("[{}] Received : {} | Sending {}".format(addr[1],recv,msg))
+            try:
+                msg=_goodanswers[match.group("msg")](match)
+            except KeyError:
+                msg=_goodanswers["_"](match)
+            print("[{}] Received : {} | Sending {}".format(addr[1],recv,msg.strip("\r\n")))
             s.sendall((msg+"\r\n").encode())
     except ConnectionResetError as e:
         print("[{}] Has stopped the connection".format(addr[1]))
@@ -52,7 +73,7 @@ def Main(delay=_DELAY):
     port = 3000
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((host, port))
-    print("Fake analogController (pulse2) on port ({})".format(port))
+    print("Fake analogController (pulse2) on ({}@{})".format(host,port))
 
     # put the socket into listening mode
     s.listen(5)
@@ -63,17 +84,9 @@ def Main(delay=_DELAY):
         c, addr = s.accept()
         # print(c.recv(4000))
         # c.sendall(b"*\r\n")
-        start_new_thread(parrotanswers, (c,addr,sequence,delay,))
+        start_new_thread(goodServer, (c,addr,delay,))
     s.close()
 
 
 if __name__ == '__main__':
-    sequence=[
-        ("*",["VEvar13","#0","VEvar13","*1"]),
-        ("?",['DEV259']),
-        ("VEvar",["VEvar13"]), #Guess
-        ("#3",["ISsva4,3,1","ISsva3,3,1","ISsva1,3,1","PRinp0,1,7,8","PRinp0,1,1,8","#0"]), #Another guess
-        ("1SYpig",["SYpig4294967294"]) #Another guess
-
-        ]
     Main(0.05)
