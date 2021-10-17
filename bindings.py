@@ -3,6 +3,7 @@
 ################################
 # IMPORTS
 # import socketserver
+
 import socket, threading
 import sys,time
 import re
@@ -179,11 +180,7 @@ _ALL_MESSAGE_TYPES=[
 ]
 
 _UPDATE_MSG=[
-<<<<<<< HEAD
-    "LAYERINP","QUICKFA","QUICKF","TAKE","FREEZE","FREEZEALL","DISPLAYLAYER",
-=======
-    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER","DETECTED",
->>>>>>> 8d7cf3e793b3cca67e51da6df4ed25c920845d29
+    "LAYERINP","QUICKFA","QUICKF","TAKE","FREEZE","FREEZEALL","DISPLAYLAYER","DETECTED",
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -242,7 +239,6 @@ class analogController(object):
             eprint('Hostname could not be resolved. Exiting')
             sys.exit()
 
-<<<<<<< HEAD
     def receiveCommand(self,command,*args,**kwargs):
         "Receive a command froman external source and handle it internally"
         try:
@@ -250,11 +246,10 @@ class analogController(object):
         except KeyError as e:
             eprint("The command received {} isn't in the list of supported commands ({})".format(command,self._commandlist))
             eprint(e)
-=======
+
     def addFeedbackInterface(self,feedback):
         "Add the feedback interface TODO: Several feedback interfaces ?"
         self.feedback=feedback
->>>>>>> 8d7cf3e793b3cca67e51da6df4ed25c920845d29
 
     def getAttr(self,attribute,default):
         "A custom attribute fetcher"
@@ -438,11 +433,14 @@ class analogController(object):
             check that the device is ready, by reading the READY status, until it returns the value 1.
             [*] (* <value>) The controller shall wait and retry until it receives the value 1
         """
-        iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
-        self.sck.connect((self.ip,self.port))
-        self._connectedLock.release()
-        self.genericSEND("CONNECT","*\r\n")
-
+        try:
+            iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
+            self.sck.connect((self.ip,self.port))
+            self._connectedLock.release()
+            self.genericSEND("CONNECT","*\r\n")
+        except ConnectionRefusedError:
+            eprint("Connection to AnalogWay server {self.ip}:{self.port} is impossible".format(self=self))
+            raise ConnectionRefusedError
     def getDevice(self):
         """This read only command gives the device type
         [?] (DEV <value>) <values>:_DEVICES_VALUES
@@ -614,7 +612,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        self.getStatus(3)
+        # self.getStatus(3)
 
 
     #########################################
