@@ -13,7 +13,7 @@ def sequenceAnswers(s,addr,seq,delay=_DELAY):
             elt=(elt+'\r\n').encode()
             resps=[(i+'\r\n').encode() for i in resps]
             print("[{}] Waiting for {}".format(name,elt))
-            while recv!=elt:
+            while recv!=elt and recv:
                 recv=s.recv(4095)
                 print("[{}] Received : {}".format(name,recv))
             for r in resps:
@@ -21,7 +21,10 @@ def sequenceAnswers(s,addr,seq,delay=_DELAY):
                 time.sleep(delay)
                 s.sendall(r)
         while True:
-            print(s.recv(4096).decode())
+            recv=s.recv(4096)
+            if not recv:
+                break
+            print(recv.decode())
     except ConnectionResetError as e:
         print("[{}] Has stopped the connection".format(name))
         print(e)

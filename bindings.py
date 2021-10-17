@@ -55,7 +55,7 @@ class pyNope(object):
     def __init__(self):
         pass
 
-    def messageReceived(self,*args):
+    def receiveMessage(self,*args):
         iprint("An order has been received :",args)
 
     def __call__(self,*args,**kwargs):
@@ -178,7 +178,7 @@ _ALL_MESSAGE_TYPES=[
 ]
 
 _UPDATE_MSG=[
-    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER",
+    "LAYERINP","QUICKFA","QUICKF","TAKE","FREEZE","FREEZEALL","DISPLAYLAYER",
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -211,7 +211,17 @@ class analogController(object):
         #         for k in range(8):
         #             self._LOCKS["LAYERINP{}_{}_{}".format(i,j,k)]=threading.Lock()
         self.POSTMATCHACTIONS={i:self.getAttr("POSTMATCH_{}".format(i),self.POSTMATCH_GENERIC) for i in _ALL_MESSAGE_TYPES}
-
+        self._all_commands={
+            "CONNECT":self.connectionSequence,
+            "LAYERINP":self.changeLayer,
+            "QUICKFA":self.quickFrameAll,
+            "QUICKF":self.quickFrame,
+            "TAKE":self.take,
+            "TAKEALL":self.takeAll,
+            "FREEZELAYER":self.freezeLayer,
+            "FREEZEALL":self.freezeScreenAll,
+            "SCRNUPD":self.updateFinishedAll,
+        }
         try:
             dprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -223,6 +233,14 @@ class analogController(object):
         except socket.gaierror:
             eprint('Hostname could not be resolved. Exiting')
             sys.exit()
+
+    def receiveCommand(self,command,*args,**kwargs):
+        "Receive a command froman external source and handle it internally"
+        try:
+            self._all_commands[command](*args,**kwargs)
+        except KeyError as e:
+            eprint("The command received {} isn't in the list of supported commands ({})".format(command,self._commandlist))
+            eprint(e)
 
     def getAttr(self,attribute,default):
         "A custom attribute fetcher"
@@ -334,6 +352,7 @@ class analogController(object):
     #     if match.group("postargs")[-1]=="1":
     #         return True
     #     return False
+
     ################################
     # MESSAGE RECEIVE
     def genericRECEIVE(self,match):
@@ -344,10 +363,10 @@ class analogController(object):
             status=self.POSTMATCHACTIONS[typ](match)
             if status:
                 self._LOCKS[typ].release()
-                return self.feedback.messageReceived(typ,match) #Do an actual action
+                return self.feedback.receiveMessage(typ,match) #Do an actual action
             else:
                 if typ in _UPDATE_MSG:
-                    return self.feedback.messageReceived(typ,match)
+                    return self.feedback.receiveMessage(typ,match)
                 else:
                     dprint("Ignoring message",match)
                 return status
@@ -450,9 +469,9 @@ class analogController(object):
         (GCtav<scrn>,1) : Take is available"""
         self.st_takeavailable=[False,False]
         for screen in screens:
-            # print(screen)
             self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
             # self.genericSEND("TAKEAVL","{screen},GCtav".format(screen=screen),timeout=_TIMEOUT_HUGE)
+
     def takeAvailableAll(self):
         self.takeAvailable(*range(self.screens))
 
@@ -489,7 +508,7 @@ class analogController(object):
         if self.st_takeavailable[0]&self.st_takeavailable[1]:
             self.genericSEND("TAKEALL","1GCtal",timeout=_TIMEOUT_BIG)
         else:
-            self.takeAvailableAll(screen)
+            self.takeAvailableAll()
             self.takeAll()
 
     def loadMM(screenF,memory,screenT,ProgPrev,filter):
@@ -678,10 +697,11 @@ class analogController(object):
 #####################
 # TESTING
 if __name__ == '__main__':
-    # _HOSTS=[["127.0.0.1",3000]] # Test server
+    #_HOSTS=[["127.0.0.1",3000]] # Test server
     # _TIMEOUT_HUGE=5
     ctrl1=analogController(*_HOSTS[0])
-    ctrl1.connectionSequence()
+    ctrl1.receiveCommand("CONNECT")
+    # ctrl1.connectionSequence()
     # while True:
     #     for i in range(8):
     #         ctrl1.changeLayer(0,1,1,i+1)
@@ -695,42 +715,45 @@ if __name__ == '__main__':
     # except KeyboardInterrupt:
     #     ctrl1.close()
 
-    ctrl1.changeLayer(0,0,1,1)
+    # ctrl1.changeLayer(0,0,1,1)
+    ctrl1.receiveCommand("LAYERINP",0,1,1,3)
+    ctrl1.receiveCommand("SCRNUPD")
+    ctrl1.receiveCommand("TAKEALL")
     # time.sleep(1)
     # # ctrl1.freezeScreenAll(1)
     # ctrl1.freezeLayer(0,0,1)
     # ctrl1.freezeLayer(1,0,1)
     # time.sleep(1)
-    ctrl1.displayed(0)
-    # ctrl1.freezeScreenAll(1)
+    # ctrl1.displayed(1)
+#     # ctrl1.freezeScreenAll(1)
 
-    # import random
+#     # import random
 
-    while True:
-    #     ctrl1.changeLayer(0,1,1,random.randint(0,7))
-    #     ctrl1.updateFinishedAll()
-    #     ctrl1.takeAvailableAll()
-    #     ctrl1.takeAll()
-        input(">>>")
-        ctrl1.displayed(1)
-        ctrl1.updateFinishedAll()
-        ctrl1.freezeLayer(0,1)
-#     time.sleep(1)
-#     # ctrl1.takeAvailable((1,))
-# # take(self,screen)
-# # takeAll(self)
-# # loadMM(screenF,memory,screenT,ProgPrev,filter)
-#     # ctrl1.quickFrame(0)
-#     # time.sleep(1)
-#     # ctrl1.quickFrame(0)
-#     # time.sleep(1)
-#     # ctrl1.quickFrame(0)
-# #
-#     # ctrl1.quickFrameAll(action=1)
-#     # time.sleep(1)
-#     # ctrl1.quickFrameAll()
+#     while True:
+#     #     ctrl1.changeLayer(0,1,1,random.randint(0,7))
+#     #     ctrl1.updateFinishedAll()
+#     #     ctrl1.takeAvailableAll()
+#     #     ctrl1.takeAll()
+#         input(">>>")
+#         ctrl1.displayed(1)
+#         ctrl1.updateFinishedAll()
+#         ctrl1.freezeLayer(0,1)
+# #     time.sleep(1)
+# #     # ctrl1.takeAvailable((1,))
+# # # take(self,screen)
+# # # takeAll(self)
+# # # loadMM(screenF,memory,screenT,ProgPrev,filter)
+# #     # ctrl1.quickFrame(0)
+# #     # time.sleep(1)
+# #     # ctrl1.quickFrame(0)
+# #     # time.sleep(1)
+# #     # ctrl1.quickFrame(0)
+# # #
+# #     # ctrl1.quickFrameAll(action=1)
+# #     # time.sleep(1)
+# #     # ctrl1.quickFrameAll()
 
-    # ctrl1.takeAvailable(1)
+#     # ctrl1.takeAvailable(1)
 
 
-#     ctrl1.keepPinging()
+# #     ctrl1.keepPinging()
