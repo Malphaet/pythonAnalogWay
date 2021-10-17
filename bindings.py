@@ -28,7 +28,7 @@ def _SYS_EXIT(system,*args):
     sys.exit()
 
 
-_VERBOSE=4
+_VERBOSE=3
 
 nopeF=lambda *x:None
 def printl(label=""):
@@ -167,6 +167,7 @@ _MATCHS={
     "GCfra":"FREEZEALL",
     "GCfrl":"FREEZELAYER",
     "GCply":"DISPLAYLAYER",
+    "ISsva":"DETECTED",
     "E":"ERROR"
 }
 
@@ -174,11 +175,15 @@ _ALL_MESSAGE_TYPES=[
     "CONNECT","DEVICE","VERSION","STATUS","KPALIVE","LAYERINP",
     "TAKEAVL","TAKE","TAKEALL","LOADMM","QUICKFA","QUICKF",
     "SCRNUPD","FREEZE","FREEZEALL","FREEZELAYER","DISPLAYLAYER",
-    "ERROR"
+    "ERROR","DETECTED",
 ]
 
 _UPDATE_MSG=[
+<<<<<<< HEAD
     "LAYERINP","QUICKFA","QUICKF","TAKE","FREEZE","FREEZEALL","DISPLAYLAYER",
+=======
+    "LAYERINP","QUICKFA","QUICKF","TAKE","QUICKFA","QUICKF","FREEZE","FREEZEALL","DISPLAYLAYER","DETECTED",
+>>>>>>> 8d7cf3e793b3cca67e51da6df4ed25c920845d29
 ]
 # RELOAD_PROGRAM
 # FREEZE_SCREEN
@@ -201,6 +206,8 @@ class analogController(object):
         self.st_quickframe=[False,False]
         self.st_takeavailable=[False,False]
         self.st_quickframeall=False
+        self._connectedLock=threading.Lock()
+        self._connectedLock.acquire() # Waiting for connection
         self.st_freeze=[False,False]
         self.st_freeze_all=False
         self.st_freeze_layer=[False,False]
@@ -225,8 +232,9 @@ class analogController(object):
         try:
             dprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            dprint('Getting remote IP address')
-            remote_ip = socket.gethostbyname(_IPSELF)
+            # iprint('Getting remote IP address')
+            # remote_ip = socket.gethostbyname(_IPSELF)
+            # iprint(remote_ip)
         except socket.error:
             eprint('Failed to create socket')
             sys.exit()
@@ -234,6 +242,7 @@ class analogController(object):
             eprint('Hostname could not be resolved. Exiting')
             sys.exit()
 
+<<<<<<< HEAD
     def receiveCommand(self,command,*args,**kwargs):
         "Receive a command froman external source and handle it internally"
         try:
@@ -241,6 +250,11 @@ class analogController(object):
         except KeyError as e:
             eprint("The command received {} isn't in the list of supported commands ({})".format(command,self._commandlist))
             eprint(e)
+=======
+    def addFeedbackInterface(self,feedback):
+        "Add the feedback interface TODO: Several feedback interfaces ?"
+        self.feedback=feedback
+>>>>>>> 8d7cf3e793b3cca67e51da6df4ed25c920845d29
 
     def getAttr(self,attribute,default):
         "A custom attribute fetcher"
@@ -347,6 +361,9 @@ class analogController(object):
         "Returns the layer,screen and status of the freeze"
         return True
 
+    def POSTMATCH_DETECTED(self,match):
+        "Return the status of the input"
+        return True
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
     #     if match.group("postargs")[-1]=="1":
@@ -423,6 +440,7 @@ class analogController(object):
         """
         iprint('Connecting to server, {self.ip}:{self.port}'.format(self=self))
         self.sck.connect((self.ip,self.port))
+        self._connectedLock.release()
         self.genericSEND("CONNECT","*\r\n")
 
     def getDevice(self):
@@ -596,7 +614,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        # self.getStatus(3)
+        self.getStatus(3)
 
 
     #########################################
@@ -627,11 +645,16 @@ class analogController(object):
                     for r in reply[:-1]: # iprint("Yielding:",r)
                         yield r
             except AttributeError as e:
+                dprint(e)
+            except OSError as e:
                 eprint(e)
+                eprint('The socket connection is experiencing issues')
+
 
     def socketLoop(self):
         """Loop on the socket and create an event for every message received"""
         self.listening=True
+        self._connectedLock.acquire(_TIMEOUT_BIG) # Wait for connection
         for message in self.cleanReceive():
             try:
                 iprint ("<<< Received:",message)
@@ -699,6 +722,7 @@ class analogController(object):
 if __name__ == '__main__':
     #_HOSTS=[["127.0.0.1",3000]] # Test server
     # _TIMEOUT_HUGE=5
+
     ctrl1=analogController(*_HOSTS[0])
     ctrl1.receiveCommand("CONNECT")
     # ctrl1.connectionSequence()
