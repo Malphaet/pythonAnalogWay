@@ -422,6 +422,11 @@ class analogController(object):
     ################################
     # MESSAGES SUBROUTINS
 
+    def passthroughSEND(self,name,send,*args,**kwargs):
+        "Send a message without any wait or lock"
+        dprint("Sending passthrough message ({})".format(send))
+        self.sendData(send)
+
     def genericSEND(self,lock,send,fatal=True,*args,**kwargs):
         "Generic send and join method, with all the logic on the controler side"
         dprint("Acquiring {}".format(lock.lower()))
@@ -542,7 +547,8 @@ class analogController(object):
                  they allow loading in a screen a preset stored from the other, in matrix mode.
 
         """
-        self.genericSEND("LOADMM","{screenF},{memory},{screenT},{ProgPrev},{filter},1GClrq".format(screenF=screenF,memory=memory,screenT=screenT,ProgPrev=ProgPrev,filter=filter),timeout=_TIMEOUT)
+        #self.genericSEND("LOADMM","{screenF},{memory},{screenT},{ProgPrev},{filter},1GClrq".format(screenF=screenF,memory=memory,screenT=screenT,ProgPrev=ProgPrev,filter=filter),timeout=_TIMEOUT)
+        self.passthroughSEND("LOADMM","{screenF},{memory},{screenT},{ProgPrev},{filter},1GClrq".format(screenF=screenF,memory=memory,screenT=screenT,ProgPrev=ProgPrev,filter=filter),timeout=_TIMEOUT)
 
 
     def quickFrame(self,screen,action=None):
