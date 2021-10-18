@@ -23,11 +23,10 @@ _MSG_ENDING=b"\r\n"
 ################################
 # BIG DEFINES
 
-_NO_FUNCT=lambda x:None
+_NO_FUNCT=lambda *x:None
 def _SYS_EXIT(system,*args):
     system.fatal=True
     sys.exit()
-
 
 _VERBOSE=3
 
@@ -38,10 +37,8 @@ def printl(label=""):
     return _pl
 
 eprint=printl("[pAW:ERROR]")
-dprint=nopeF
-ddprint=nopeF
-iprint=nopeF
-wprint=nopeF
+dprint,ddprint,iprint,wprint=nopeF,nopeF,nopeF,nopeF
+
 if _VERBOSE>=1:
     wprint=printl("[pAW:WARNING]")
 if _VERBOSE>=2:
@@ -225,7 +222,9 @@ class analogController(object):
             "FREEZELAYER":self.freezeLayer,
             "FREEZEALL":self.freezeScreenAll,
             "SCRNUPD":self.updateFinishedAll,
+            "LOADMM":self.loadMM,
         }
+        self._commandlist=self._all_commands
         try:
             dprint('Creating socket')
             self.sck = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -244,7 +243,7 @@ class analogController(object):
         try:
             self._all_commands[command](*args,**kwargs)
         except KeyError as e:
-            eprint("The command received {} isn't in the list of supported commands ({})".format(command,self._commandlist))
+            eprint("The command received {} isn't in the list of supported commands ({})".format(command,self._commandlist.keys()))
             eprint(e)
 
     def addFeedbackInterface(self,feedback):
@@ -359,6 +358,10 @@ class analogController(object):
     def POSTMATCH_DETECTED(self,match):
         "Return the status of the input"
         return True
+
+    def POSTMATCH_LOADMM(self,match):
+        "Result of a load master memory"
+        return True
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
     #     if match.group("postargs")[-1]=="1":
@@ -375,7 +378,8 @@ class analogController(object):
             status=self.POSTMATCHACTIONS[typ](match)
             if status:
                 self._LOCKS[typ].release()
-                return self.feedback.receiveMessage(typ,match) #Do an actual action
+                if typ in _UPDATE_MSG:
+                    return self.feedback.receiveMessage(typ,match) #Do an actual action
             else:
                 if typ in _UPDATE_MSG:
                     return self.feedback.receiveMessage(typ,match)
@@ -527,7 +531,7 @@ class analogController(object):
             self.takeAvailableAll()
             self.takeAll()
 
-    def loadMM(screenF,memory,screenT,ProgPrev,filter):
+    def loadMM(self,screenF,memory,screenT,ProgPrev,filter): # Changed it to be correct, care since no debug
         """Load a master memory to a screen
         <screenF>,<memory>,<screenT>,<ProgPrev>,<filter>,1 GClrq ()
         Filter: This parameter allows excluding some preset elements from recalling
