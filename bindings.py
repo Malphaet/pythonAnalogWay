@@ -145,7 +145,7 @@ _FILTER={
 # PROGRESS "PSprg99"
 # GCfrl ?
 # 0,0GCtio ?
-_MESSAGE_REGEX=re.compile("(?P<preargs>(\d)*(,\d)*)(?P<msg>\D*)(?P<postargs>(\d)*(,\d)*)")
+_MESSAGE_REGEX=re.compile("(?P<preargs>(\d*)*(,\d*)*)(?P<msg>\D*)(?P<postargs>(\d*)*(,\d*)*)")
 
 _MATCHS={
     "*":"CONNECT",
@@ -165,7 +165,7 @@ _MATCHS={
     "GCfra":"FREEZEALL",
     "GCfrl":"FREEZELAYER",
     "GCply":"DISPLAYLAYER",
-    "ISsva":"DETECTED",
+    "ISsva":"DETECTED", # Undocumented
     "E":"ERROR"
 }
 
@@ -362,6 +362,7 @@ class analogController(object):
     def POSTMATCH_LOADMM(self,match):
         "Result of a load master memory"
         return True
+
     # def POSTMATCH_TAKEAVL(self,match):
     #     "Take available answer 1"
     #     if match.group("postargs")[-1]=="1":
@@ -620,7 +621,7 @@ class analogController(object):
         self.connect()
         self.getDevice()
         self.getVersion()
-        # self.getStatus(3)
+        self.getStatus(3)
 
 
     #########################################
