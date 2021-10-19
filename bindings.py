@@ -375,24 +375,22 @@ class analogController(object):
         try:
             typ=_MATCHS[match.group("msg")]
             # self.messages[typ]=match # Not very clever tho
+            if typ in _UPDATE_MSG:
+                self.feedback.receiveMessage(typ,match)
             status=self.POSTMATCHACTIONS[typ](match)
             if status:
                 self._LOCKS[typ].release()
-                if typ in _UPDATE_MSG:
-                    return self.feedback.receiveMessage(typ,match) #Do an actual action
             else:
-                if typ in _UPDATE_MSG:
-                    return self.feedback.receiveMessage(typ,match)
-                else:
-                    dprint("Ignoring message",match)
+                dprint("Ignoring message",match)
                 return status
         except RuntimeError as e:
             dprint("Lock [{}] is already released (async terminated earlier)".format(typ))
             dprint("This message is either comming from the device or garbage data")
             dprint(e)
+            
         except KeyError as e:
             eprint("There is no lock associated with {}".format(typ))
-            print(e)
+            eprint(e)
         return False
 
     ##############################################
