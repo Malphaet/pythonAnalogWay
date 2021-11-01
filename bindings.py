@@ -656,6 +656,7 @@ class analogController(object):
             except OSError as e:
                 eprint(e)
                 eprint('The socket connection is experiencing issues')
+                sys.exit()
 
 
     def socketLoop(self):
@@ -688,7 +689,7 @@ class analogController(object):
         try:
             iprint(">>> Sending direct: {}".format(direct))
             self.sck.sendall(direct)
-        except:
+        except socket.error:
             eprint("Error sending data: ",direct)
 
     def sendData(self,data):

@@ -24,8 +24,8 @@ class Answer(object):
     def __radd__(self,other):
         if type(other)==str:
             def new_funct(match):
-                return other+self.function
-            return new_funct
+                return other+self.function(match)
+            return Answer(new_funct)
         else:
             raise TypeError
 
@@ -46,6 +46,7 @@ _goodanswers={
     "#":_MSG+_0,
     "PRinp":_MSG+_ARG,
     "PUscu":_MSG+_ARG,
+    ",GCtav":"GCtav"+_ARG+Answer(",1"),
     "_":_MSG+_ARG,
 }
 def goodServer(s,addr,delay=_DELAY):
@@ -85,6 +86,9 @@ def Main(delay=_DELAY):
         # print(c.recv(4000))
         # c.sendall(b"*\r\n")
         start_new_thread(goodServer, (c,addr,delay,))
+        cont=input("Keep accepting connections ?")
+        if cont.lower()=="n":
+            break
     s.close()
 
 
