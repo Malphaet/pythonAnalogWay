@@ -388,7 +388,7 @@ class analogController(object):
             dprint("Lock [{}] is already released (async terminated earlier)".format(typ))
             dprint("This message is either comming from the device or garbage data")
             dprint(e)
-            
+
         except KeyError as e:
             eprint("There is no lock associated with {}".format(typ))
             eprint(e)
@@ -594,9 +594,9 @@ class analogController(object):
         """Freeze layer <layer> on <screen>
         <layer>,<screen>,<action>GCfrl: Freeze screen
         """
-        if not action==None:
+        if action==None:
             action=not self.st_freeze_layer[layer]
-        print(action)
+
         self.genericSEND("FREEZELAYER","{layer},{screen},{action:b}GCfrl".format(layer=layer,screen=screen,action=action))
         self.st_freeze_layer[layer]=not self.st_freeze_layer[layer]
 
@@ -617,7 +617,7 @@ class analogController(object):
             self.updateFinished(screen)
 
     def connectionSequence(self):
-        "Execute the full connection sequence"
+        """Execute the full connection sequence"""
         self.start_listening()
         self.connect()
         self.getDevice()
@@ -686,7 +686,7 @@ class analogController(object):
             pass
 
     def sendDirect(self,direct):
-        "Directly sent to the socket"
+        """Directly sent to the socket"""
         try:
             iprint(">>> Sending direct: {}".format(direct))
             self.sck.sendall(direct)
@@ -694,7 +694,7 @@ class analogController(object):
             eprint("Error sending data: ",direct)
 
     def sendData(self,data):
-        "Send data through the socket"
+        """Send data through the socket"""
         try:
             iprint(">>> Sending data: {}".format(data.replace("\n","")))
             self.sck.sendall((data).encode())
@@ -703,12 +703,12 @@ class analogController(object):
             sys.exit()
 
     def limbowait(self):
-        "Testing state, only usefull when not on a remote gui/midiRebind"
+        """Testing state, only usefull when not on a remote gui/midiRebind"""
         while not self.fatal:
             time.sleep(_TIMEOUT_HUGE)
 
     def pingLoop(self):
-        "Another limbo wait, this time with pings"
+        """Another limbo wait, this time with pings"""
         while not self.fatal:
             self._keepAlive(val=0b1000)
             time.sleep(_TIMEOUT_HUGE)
