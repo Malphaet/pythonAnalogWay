@@ -571,13 +571,13 @@ class analogController(object):
         self.genericSEND("QUICKFA","{action:b}CTqfl".format(action=action))
         self.st_quickframeall=action
 
-    def freezeScreen(self,screen,action=False):
+    def freezeScreen(self,screen,action=None):
         """Freeze screen <screen>
             <screen>,1GCfsc: Freeze screen
             <screen>,0GCfsc: Un Freeze screen ?
         """
         if action==None:
-            action=not self.st_freeze[screen]
+            action=self.st_freeze[screen]
         self.genericSEND("FREEZE","{screen},{action:b}GCfsc".format(screen=screen,action=action))
         self.st_freeze[screen]=not action
 
@@ -594,8 +594,9 @@ class analogController(object):
         """Freeze layer <layer> on <screen>
         <layer>,<screen>,<action>GCfrl: Freeze screen
         """
-        if action==None:
-            action=self.st_freeze_layer[layer]
+        if not action==None:
+            action=not self.st_freeze_layer[layer]
+        print(action)
         self.genericSEND("FREEZELAYER","{layer},{screen},{action:b}GCfrl".format(layer=layer,screen=screen,action=action))
         self.st_freeze_layer[layer]=not self.st_freeze_layer[layer]
 
